@@ -39,6 +39,8 @@ import re
 import rpm
 import signal
 import socket
+from ssl.XMLRPCServerProxy import PlgSSL_Transport
+import ssl.SSLCommon
 import struct
 import tempfile
 import time
@@ -48,9 +50,8 @@ import urllib2
 import urlparse
 import util
 import xmlrpclib
-from xmlrpclib import loads, Fault
-import ssl.XMLRPCServerProxy
-import OpenSSL.SSL
+from xmlrpclib import loads, dumps, Fault
+#import OpenSSL.SSL
 
 def _(args):
     """Stub function for translation"""
@@ -1302,18 +1303,26 @@ class ClientSession(object):
             opts = {}
         else:
             opts = opts.copy()
-        self.opts = opts
-        self.proxyOpts = {'allow_none':1}
-        if self.opts.get('debug_xmlrpc'):
-            self.proxyOpts['verbose'] = 1
-        if self.opts.get('certs'):
-            self.proxyOpts['certs'] = self.opts['certs']
-            self.proxyClass = ssl.XMLRPCServerProxy.PlgXMLRPCServerProxy
-        else:
-            self.proxyClass = xmlrpclib.ServerProxy
-        if self.opts.get('timeout'):
-            self.proxyOpts['timeout'] = self.opts['timeout']
         self.baseurl = baseurl
+        self.opts = opts
+        uri = urlparse.urlsplit(baseurl)
+        self.host = uri.netloc
+        self.path = uri.path
+        if self.opts.get('certs'):
+            ctx = ssl.SSLCommon.CreateSSLContext(self.opts['certs'])
+            transportOpts = {'ssl_context' : ctx}
+            if self.opts.get('timeout'):
+                transportOpts['timeout'] = self.opts['timeout']
+            transportClass = PlgSSL_Transport
+        elif uri.scheme == 'https':
+            transportOpts = {}
+            transportClass = xmlrpclib.SafeTransport
+        elif uri.scheme == 'http':
+            transportOpts = {}
+            transportClass = xmlrpclib.Transport
+        else:
+            raise IOError, "unsupported XML-RPC protocol"
+        self._transport = transportClass(**transportOpts)
         self.setSession(sinfo)
         self.multicall = False
         self._calls = []
@@ -1326,21 +1335,11 @@ class ClientSession(object):
         if sinfo is None:
             self.logged_in = False
             self.callnum = None
-            # undo state changes made by ssl_login()
-            if self.baseurl.startswith('https:'):
-                self.baseurl = self.baseurl.replace('https:', 'http:')
-            self.opts.pop('certs', None)
-            self.proxyOpts.pop('certs', None)
-            self.opts.pop('timeout', None)
-            self.proxyOpts.pop('timeout', None)
-            self.proxyClass = xmlrpclib.ServerProxy
-            url = self.baseurl
+            #should we drop the certs data and remake the transport?
         else:
             self.logged_in = True
             self.callnum = 0
-            url = "%s?%s" %(self.baseurl,urllib.urlencode(sinfo))
         self.sinfo = sinfo
-        self.proxy = self.proxyClass(url,**self.proxyOpts)
 
     def login(self,opts=None):
         sinfo = self.callMethod('login',self.opts['user'], self.opts['password'],opts)
@@ -1445,17 +1444,21 @@ class ClientSession(object):
         certs['ca_cert'] = ca
         certs['peer_ca_cert'] = serverca
 
+        ctx = SSLCommon.CreateSSLContext(self.opts['certs'])
+        transportOpts = {'ssl_context' : ctx}
         # 60 second timeout during login
-        self.proxy = ssl.XMLRPCServerProxy.PlgXMLRPCServerProxy(self.baseurl, certs, timeout=60, **self.proxyOpts)
+        transportOpts['timeout'] = 60
+        self._transport = PlgSSL_Transport(**transportOpts)
         sinfo = self.callMethod('sslLogin', proxyuser)
         if not sinfo:
             raise AuthError, 'unable to obtain a session'
 
-        self.proxyClass = ssl.XMLRPCServerProxy.PlgXMLRPCServerProxy
-        self.opts['certs'] = self.proxyOpts['certs'] = certs
-        # 12 hour connection timeout.  Some Koji operations can take a long time to return,
-        # but after 12 hours we can assume something is seriously wrong.
-        self.opts['timeout'] = self.proxyOpts['timeout'] = 60 * 60 * 12
+        self.opts['certs'] = certs
+        # set a default 12 hour connection timeout.
+        # Some Koji operations can take a long time to return, but after 12
+        # hours we can assume something is seriously wrong.
+        transportOpts['timeout'] = self.opts.setdefault('timeout', 60 * 60 * 12)
+        self._transport = PlgSSL_Transport(**transportOpts)
         self.setSession(sinfo)
 
         return True
@@ -1464,7 +1467,10 @@ class ClientSession(object):
         if not self.logged_in:
             return
         try:
-            self.proxy.logout()
+            # bypass _callMethod (no retries)
+            # XXX - is that really what we want?
+            handler, request = self._prepCall('logout', ())
+            self._sendCall(handler, request)
         except AuthExpired:
             #this can happen when an exclusive session is forced
             pass
@@ -1494,22 +1500,36 @@ class ClientSession(object):
         """compatibility wrapper for _callMethod"""
         return self._callMethod(name, args, opts)
 
-    def _callMethod(self, name, args, kwargs):
+    def _prepCall(self, name, args, kwargs=None):
         #pass named opts in a way the server can understand
         args = encode_args(*args,**kwargs)
+        if self.logged_in:
+            sinfo = self.sinfo.copy()
+            sinfo['callnum'] = self.callnum
+            self.callnum += 1
+            handler = "%s?%s" % (self.path, urllib.urlencode(sinfo))
+        else:
+            handler = self.path
+        request = dumps(args, name, allow_none=1)
+        return handler, request
+
+    def _sendCall(self, handler, request):
+        response = self._transport.request(
+            self.host, handler, request,
+            verbose = self.opts.get('debug_xmlrpc'))
+        if len(response) == 1:
+            return response[0]
+        else:
+            return response
+
+    def _callMethod(self, name, args, kwargs=None):
+        """Make a call to the hub with retries and other niceties"""
 
         if self.multicall:
             self._calls.append({'methodName': name, 'params': args})
             return MultiCallInProgress
         else:
-            if self.logged_in:
-                sinfo = self.sinfo.copy()
-                sinfo['callnum'] = self.callnum
-                self.callnum += 1
-                url = "%s?%s" %(self.baseurl,urllib.urlencode(sinfo))
-                proxy = self.proxyClass(url,**self.proxyOpts)
-            else:
-                proxy = self.proxy
+            handler, request = self._prepCall(name, args, kwargs)
             tries = 0
             debug = self.opts.get('debug',False)
             max_retries = self.opts.get('max_retries',30)
@@ -1517,7 +1537,7 @@ class ClientSession(object):
             while True:
                 tries += 1
                 try:
-                    return proxy.__getattr__(name)(*args)
+                    return self._sendCall(handler, request)
                 #basically, we want to retry on most errors, with a few exceptions
                 #  - faults (this means the call completed and failed)
                 #  - SystemExit, KeyboardInterrupt
@@ -1590,6 +1610,53 @@ class ClientSession(object):
         #if name[:1] == '_':
         #    raise AttributeError, "no attribute %r" % name
         return VirtualMethod(self._callMethod,name)
+
+    def fastUpload(self, localfile, path, name=None, callback=None, blocksize=8192):
+        if not self.logged_in:
+            raise ActionNotAllowed, 'You must be logged in to upload files'
+        if name is None:
+            name = os.path.basename(localfile)
+        type, uri = urllib.splittype(self.baseurl)
+        args = self.sinfo.copy()
+        args['callnum'] = self.callnum
+        args['filename'] = name
+        args['filepath'] = path
+        args['fileverify'] = "adler32"
+        # old method sends digest, doing that here would require calculating that first
+        # we ask hub return a checksum for post verification
+        # size ? offset?  (for partial uploads)
+        self.callnum += 1
+        handler = "%s?%s" % (self.path, urllib.urlencode(args))
+        transport = self._transport
+        conn = transport.make_connection(self.host)
+        conn.putrequest("POST", handler)
+        transport.send_host(conn, self.host)
+        transport.send_user_agent(conn)
+        flen = os.stat(localfile).st_size
+        fo = file(localfile)
+        conn.putheader("Content-Type", "application/octet-stream")
+        conn.putheader("Content-length", str(flen))
+        #TODO - more headers
+        # data to pass:
+        conn.endheaders()
+        while True:
+            chunk = fo.read(blocksize)
+            if not chunk:
+                break
+            conn.send(chunk)
+        errcode, errmsg, headers = conn.getreply()
+        if errcode != 200:
+            print headers
+            raise GenericError, "%s: %s" % (errcode, errmsg)
+        #despite our non-xmlrpc post, the server will still give an xmlrpc return
+        try:
+            sock = conn._conn.sock
+        except AttributeError:
+            sock = None
+        result = transport._parse_response(conn.getfile(), sock)
+        #...more processing
+        import pprint
+        pprint.pprint(result) #XXX
 
     def uploadWrapper(self, localfile, path, name=None, callback=None, blocksize=1048576):
         """upload a file in chunks using the uploadFile call"""

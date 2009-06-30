@@ -189,15 +189,12 @@ class ModXMLRPCRequestHandler(object):
         else:
             return self.handlers.get(name)
 
-    def _marshaled_dispatch(self, data):
-        """Dispatches an XML-RPC method from marshalled (XML) data."""
+    def _wrap_handler(self, handler, req):
+        """Catch exceptions and encode response of handler"""
 
-        params, method = loads(data)
-
-        start = time.time()
         # generate response
         try:
-            response = self._dispatch(method, params)
+            response = handler(req)
             # wrap response in a singleton tuple
             response = (response,)
             response = dumps(response, methodresponse=1, allow_none=1)
@@ -212,7 +209,7 @@ class ModXMLRPCRequestHandler(object):
             tb_type = context.opts.get('KojiTraceback',None)
             tb_str = ''.join(traceback.format_exception(*sys.exc_info()))
             if issubclass(e_class, koji.GenericError):
-                if _opt_bool(context.opts, 'KojiDebug'):
+                if context.opts.get('KojiDebug'):
                     if tb_type == "extended":
                         faultString = koji.format_exc_plus()
                     else:
@@ -231,14 +228,21 @@ class ModXMLRPCRequestHandler(object):
             sys.stderr.flush()
             response = dumps(Fault(faultCode, faultString))
 
-        logger.debug("Returning %d bytes after %f seconds\n", len(response),
-                        time.time() - start)
-
         return response
 
-    def _dispatch(self,method,params):
-        func = self._get_handler(method)
-        context.method = method
+    def handle_upload(self, req):
+        #uploads can't be in a multicall
+        context.method = None
+        self.check_session()
+        self.enforce_lockout()
+        return kojihub.handle_upload(req)
+
+    def handle_rpc(self, req):
+        data = req.read()
+        params, method = loads(data)
+        return self._dispatch(method, params)
+
+    def check_session(self):
         if not hasattr(context,"session"):
             #we may be called again by one of our meta-calls (like multiCall)
             #so we should only create a session if one does not already exist
@@ -247,16 +251,24 @@ class ModXMLRPCRequestHandler(object):
                 context.session.validate()
             except koji.AuthLockError:
                 #might be ok, depending on method
-                if method not in ('exclusiveSession','login', 'krbLogin', 'logout'):
+                if context.method not in ('exclusiveSession','login', 'krbLogin', 'logout'):
                     raise
-            if _opt_bool(context.opts, 'LockOut') and \
-                   method not in ('login', 'krbLogin', 'sslLogin', 'logout'):
-                if not context.session.hasPerm('admin'):
-                    raise koji.ServerOffline, "Server disabled for maintenance"
+
+    def enforce_lockout(self):
+        if context.opts.get('LockOut') and \
+            context.method not in ('login', 'krbLogin', 'sslLogin', 'logout') and \
+            not context.session.hasPerm('admin'):
+                raise koji.ServerOffline, "Server disabled for maintenance"
+
+    def _dispatch(self, method, params):
+        func = self._get_handler(method)
+        context.method = method
+        self.check_session()
+        self.enforce_lockout()
         # handle named parameters
         params,opts = koji.decode_args(*params)
 
-        if _opt_bool(context.opts, 'KojiDebug'):
+        if context.opts.get('KojiDebug'):
             logger.debug("Handling method %s for session %s (#%s)",
                             method, context.session.id, context.session.callnum)
             if method != 'uploadFile':
@@ -266,7 +278,7 @@ class ModXMLRPCRequestHandler(object):
 
         ret = func(*params,**opts)
 
-        if _opt_bool(context.opts, 'KojiDebug'):
+        if context.opts.get('KojiDebug'):
             logger.debug("Completed method %s for session %s (#%s): %f seconds",
                             method, context.session.id, context.session.callnum,
                             time.time()-start)
@@ -300,16 +312,40 @@ class ModXMLRPCRequestHandler(object):
     def handle_request(self,req):
         """Handle a single XML-RPC request"""
 
+        start = time.time()
         # XMLRPC uses POST only. Reject anything else
         if req.method != 'POST':
             req.allow_methods(['POST'],1)
             raise apache.SERVER_RETURN, apache.HTTP_METHOD_NOT_ALLOWED
 
-        response = self._marshaled_dispatch(req.read())
+        if req.headers_in.get('Content-Type') == 'application/octet-stream':
+            response = self._wrap_handler(self.handle_upload, req)
+        else:
+            response = self._wrap_handler(self.handle_rpc, req)
 
         req.content_type = "text/xml"
         req.set_content_length(len(response))
         req.write(response)
+        logger.debug("Returning %d bytes after %f seconds\n", len(response),
+                        time.time() - start)
+
+
+
+def dump_req(req):
+    data = [
+        "request: %s\n" % req.the_request,
+        "uri: %s\n" % req.uri,
+        "args: %s\n" % req.args,
+        "protocol: %s\n" % req.protocol,
+        "method: %s\n" % req.method,
+        "https: %s\n" % req.is_https(),
+        "auth_name: %s\n" % req.auth_name(),
+        "auth_type: %s\n" % req.auth_type(),
+        "headers:\n%s\n" % pprint.pformat(req.headers_in),
+    ]
+    for part in data:
+        sys.stderr.write(part)
+    sys.stderr.flush()
 
 
 def offline_reply(req, msg=None):

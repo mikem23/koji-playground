@@ -23,6 +23,7 @@
 
 import base64
 import calendar
+import cgi
 import koji
 import koji.auth
 import koji.db
@@ -7493,10 +7494,72 @@ class HostExports(object):
         host.verify()
         return host.isEnabled()
 
-# XXX - not needed anymore?
 def handle_upload(req):
     """Handle file upload via POST request"""
-    pass
+    # a work in progress
+    import pprint
+    sys.stderr.write(pprint.pformat(req.args))
+    if not context.session.logged_in:
+        raise koji.GenericError, 'you must be logged-in to upload a file'
+    args = cgi.parse_qs(req.args, strict_parsing=True)
+    sys.stderr.write(pprint.pformat(args))
+    #XXX - already parsed by auth
+    #TODO - handle offset
+    #XXX - unify logic with chunked xmlrpc upload
+    uploadpath = koji.pathinfo.work()
+    #XXX - have an incoming dir and move after upload complete
+    name = args['filename'][0]
+    path = args.get('filepath', ('',))[0]
+    # SECURITY - ensure path remains under uploadpath
+    path = os.path.normpath(path)
+    if path.startswith('..'):
+        raise koji.GenericError, "Upload path not allowed: %s" % path
+    udir = "%s/%s" % (uploadpath, path)
+    koji.ensuredir(udir)
+    fn = "%s/%s" % (udir,name)
+    try:
+        st = os.lstat(fn)
+    except OSError, e:
+        if e.errno == errno.ENOENT:
+            pass
+        else:
+            raise
+    else:
+        raise koji.GenericError, "upload path exists: %s" % fn
+        #XXX - support offsets, partial uploads, etc
+    #m = md5.new()
+    size = 0
+    fd = os.open(fn, os.O_RDWR | os.O_CREAT, 0666)
+    try:
+        while True:
+            try:
+                chunk = req.read(8192)
+            except IOError:
+                #XXX - do we really want to catch this?
+                break
+            if not chunk:
+                break
+            size += len(chunk)
+            #m.update(chunk)
+            #XXX skip truncation - since we're assuming a new file
+            #write contents
+            fcntl.lockf(fd, fcntl.LOCK_EX|fcntl.LOCK_NB, len(chunk), 0, 2)
+            try:
+                os.write(fd, chunk)
+                # log_error("wrote contents")
+            finally:
+                fcntl.lockf(fd, fcntl.LOCK_UN, len(chunk), 0, 2)
+            sys.stderr.write("Got chunk, size %i (%i total)\n" % (len(chunk),size))
+            sys.stderr.flush()
+            #time.sleep(2)
+    finally:
+        os.close(fd)
+    #s = 'Complete. Size=%i, md5=%s\n' % (size, m.hexdigest())
+    s = 'Complete. Size=%i\n' % (size)
+    sys.stderr.write(s)
+    sys.stderr.flush()
+    return s
+    ################3
 
 #koji.add_sys_logger("koji")
 
