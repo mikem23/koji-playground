@@ -1639,11 +1639,19 @@ class ClientSession(object):
         #TODO - more headers
         # data to pass:
         conn.endheaders()
+        sum = util.adler32_constructor()
+        b_sent = 0
         while True:
             chunk = fo.read(blocksize)
             if not chunk:
                 break
             conn.send(chunk)
+            sum.update(chunk)
+            b_sent += len(chunk)
+        if flen != b_sent:
+            # note that if we don't error here for the b_sent > flen case, then
+            # we'll stall waiting for a response
+            raise GenericError, "uploaded file changed size"
         errcode, errmsg, headers = conn.getreply()
         if errcode != 200:
             print headers
@@ -1654,9 +1662,15 @@ class ClientSession(object):
         except AttributeError:
             sock = None
         result = transport._parse_response(conn.getfile(), sock)
-        #...more processing
+        if len(result) == 1:
+            result = result[0]
         import pprint
         pprint.pprint(result) #XXX
+        #sanity check
+        if result['size'] != b_sent:
+            raise GenericError, 'upload size check failed'
+        if int(result['digest']) != sum.digest():
+            raise GenericError, 'upload checksum failed'
 
     def uploadWrapper(self, localfile, path, name=None, callback=None, blocksize=1048576):
         """upload a file in chunks using the uploadFile call"""

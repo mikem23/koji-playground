@@ -7510,6 +7510,7 @@ def handle_upload(req):
     #XXX - have an incoming dir and move after upload complete
     name = args['filename'][0]
     path = args.get('filepath', ('',))[0]
+    verify = args.get('fileverify', ('',))[0]
     # SECURITY - ensure path remains under uploadpath
     path = os.path.normpath(path)
     if path.startswith('..'):
@@ -7527,7 +7528,14 @@ def handle_upload(req):
     else:
         raise koji.GenericError, "upload path exists: %s" % fn
         #XXX - support offsets, partial uploads, etc
-    #m = md5.new()
+    if verify == 'md5':
+        sum = md5.new()
+    elif verify == 'adler32':
+        sum = koji.util.adler32_constructor()
+    elif verify:
+        raise koji.GenericError, "Unsupported verify type: %s" % verify
+    else:
+        sum = None
     size = 0
     fd = os.open(fn, os.O_RDWR | os.O_CREAT, 0666)
     try:
@@ -7540,26 +7548,34 @@ def handle_upload(req):
             if not chunk:
                 break
             size += len(chunk)
-            #m.update(chunk)
+            if sum:
+                sum.update(chunk)
             #XXX skip truncation - since we're assuming a new file
             #write contents
             fcntl.lockf(fd, fcntl.LOCK_EX|fcntl.LOCK_NB, len(chunk), 0, 2)
             try:
                 os.write(fd, chunk)
-                # log_error("wrote contents")
             finally:
                 fcntl.lockf(fd, fcntl.LOCK_UN, len(chunk), 0, 2)
             sys.stderr.write("Got chunk, size %i (%i total)\n" % (len(chunk),size))
             sys.stderr.flush()
-            #time.sleep(2)
     finally:
         os.close(fd)
-    #s = 'Complete. Size=%i, md5=%s\n' % (size, m.hexdigest())
-    s = 'Complete. Size=%i\n' % (size)
+    if sum:
+        s = 'Upload complete. Size=%i, digest(%s)=%s\n' \
+                % (size, verify, sum.hexdigest())
+    else:
+        s = 'Upload complete. Size=%i\n' % size
     sys.stderr.write(s)
     sys.stderr.flush()
-    return s
-    ################3
+    ret = {
+        'size' : size,
+        'fileverify' : verify,
+    }
+    if sum:
+        # unsigned 32bit - could be too big for xmlrpc
+        ret['digest'] = str(sum.digest())
+    return ret
 
 #koji.add_sys_logger("koji")
 
