@@ -1306,18 +1306,19 @@ class ClientSession(object):
         self.baseurl = baseurl
         self.opts = opts
         uri = urlparse.urlsplit(baseurl)
-        self.host = uri.netloc
-        self.path = uri.path
+        scheme = uri[0]
+        self._host = uri[1]
+        self._path = uri[2]
         if self.opts.get('certs'):
             ctx = ssl.SSLCommon.CreateSSLContext(self.opts['certs'])
             transportOpts = {'ssl_context' : ctx}
             if self.opts.get('timeout'):
                 transportOpts['timeout'] = self.opts['timeout']
             transportClass = PlgSSL_Transport
-        elif uri.scheme == 'https':
+        elif scheme == 'https':
             transportOpts = {}
             transportClass = xmlrpclib.SafeTransport
-        elif uri.scheme == 'http':
+        elif scheme == 'http':
             transportOpts = {}
             transportClass = xmlrpclib.Transport
         else:
@@ -1502,20 +1503,22 @@ class ClientSession(object):
 
     def _prepCall(self, name, args, kwargs=None):
         #pass named opts in a way the server can understand
+        if kwargs is None:
+            kwargs = {}
         args = encode_args(*args,**kwargs)
         if self.logged_in:
             sinfo = self.sinfo.copy()
             sinfo['callnum'] = self.callnum
             self.callnum += 1
-            handler = "%s?%s" % (self.path, urllib.urlencode(sinfo))
+            handler = "%s?%s" % (self._path, urllib.urlencode(sinfo))
         else:
-            handler = self.path
+            handler = self._path
         request = dumps(args, name, allow_none=1)
         return handler, request
 
     def _sendCall(self, handler, request):
         response = self._transport.request(
-            self.host, handler, request,
+            self._host, handler, request,
             verbose = self.opts.get('debug_xmlrpc'))
         if len(response) == 1:
             return response[0]
@@ -1626,11 +1629,11 @@ class ClientSession(object):
         # we ask hub return a checksum for post verification
         # size ? offset?  (for partial uploads)
         self.callnum += 1
-        handler = "%s?%s" % (self.path, urllib.urlencode(args))
+        handler = "%s?%s" % (self._path, urllib.urlencode(args))
         transport = self._transport
-        conn = transport.make_connection(self.host)
+        conn = transport.make_connection(self._host)
         conn.putrequest("POST", handler)
-        transport.send_host(conn, self.host)
+        transport.send_host(conn, self._host)
         transport.send_user_agent(conn)
         flen = os.stat(localfile).st_size
         fo = file(localfile)
