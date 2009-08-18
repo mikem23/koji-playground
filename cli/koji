@@ -1156,6 +1156,9 @@ def handle_import_sig(options, session, args):
             parser.error(_("No such file: %s") % path)
     activate_session(session)
     for path in args:
+        if path.endswith('.sig'):
+            #import a raw signature header file (e.g. from an archived sigcache dir)
+            pass
         data = koji.get_header_fields(path, ('name','version','release','arch','siggpg','sigpgp','sourcepackage'))
         if data['sourcepackage']:
             data['arch'] = 'src'
