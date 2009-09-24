@@ -41,21 +41,6 @@ from kojihub import HostExports
 from koji.context import context
 
 
-def _opt_bool(opts, name):
-    """Convert option into a boolean if necessary
-
-    For strings, the following values
-    will be considered True (case-insensitive):
-        yes, on, true, 1
-    Any other strings will be considered False."""
-    val = opts.get(name, False)
-    if isinstance(val, bool):
-        return val
-    elif isinstance(val, basestring):
-        if val.lower() in ('yes', 'on', 'true', '1'):
-            return True
-    return False
-
 class HandlerRegistry(object):
     """Track handlers for RPC calls"""
 
@@ -422,7 +407,7 @@ def load_config(req):
         ['MissingPolicyOk', 'boolean', True],
 
         ['LockOut', 'boolean', False],
-        ['ServerOffline', 'string', False],
+        ['ServerOffline', 'boolean', False],
         ['OfflineMessage', 'string', None],
     ]
     opts = {}
@@ -617,7 +602,7 @@ def handler(req, profiling=False):
         _profiling_req = None
     else:
         try:
-            if _opt_bool(opts, 'ServerOffline'):
+            if opts.get('ServerOffline'):
                 offline_reply(req, msg=opts.get("OfflineMessage", None))
                 return apache.OK
             context._threadclear()
