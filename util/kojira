@@ -300,7 +300,7 @@ class RepoManager(object):
         data = [(ts, tag_id, self.tagUseStats(tag_id)) for ts, tag_id in data]
         max_n = max([s['n_recent'] for ts,tag,s in data])
         if max_n == 0:
-            ret = data[:]  #copy
+            ret = [(ts,tag) for ts,tag,s in data]
             ret.sort()
             return ret
         #XXX - need to make sure our times aren't far off, otherwise this
@@ -315,6 +315,7 @@ class RepoManager(object):
             #2.4-hour-old, very popular repo
         ret.sort()
         ret.reverse()
+        return ret
 
     def updateRepos(self):
         #check on tasks
