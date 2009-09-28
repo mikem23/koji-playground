@@ -28,7 +28,7 @@ import xmlrpclib, pycurl
 
 class PyCURLXMLRPCTransport(xmlrpclib.Transport):
     """Handles a cURL HTTPS transaction to an XML-RPC server validating certs."""
-    def __init__(self, certs, timeout = 60):
+    def __init__(self, certs, timeout=None):
         xmlrpclib.Transport.__init__(self)
 
         self.verbose = 0
@@ -101,7 +101,7 @@ class PyCURLXMLRPCTransport(xmlrpclib.Transport):
 
 class KojiXMLRPCServerProxy(xmlrpclib.ServerProxy):
     def __init__(self, uri, certs, timeout=None, verbose=0, allow_none=0):
-        self._transport = PyCURLXMLRPCTransport(certs)
+        self._transport = PyCURLXMLRPCTransport(certs, timeout=timeout)
         xmlrpclib.ServerProxy.__init__(self, uri, transport=self._transport,
                                        verbose=verbose, allow_none=allow_none)
 
