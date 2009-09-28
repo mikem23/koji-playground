@@ -2,7 +2,7 @@
 #
 # PyCURL based transports for xmlrpclib
 #
-# Copyright 2009 Red Hat inc
+# Copyright 2009 Red Hat
 
 # Based on a implementation by Alexandr D. Kanevskiy <kad () bifh.org>
 # which was based on pycurl's example by Kjetil Jacobsen <kjetilja at gmail.com>
