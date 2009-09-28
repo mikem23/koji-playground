@@ -39,7 +39,8 @@ import re
 import rpm
 import signal
 import socket
-from ssl.XMLRPCServerProxy import PlgSSL_Transport
+#from ssl.XMLRPCServerProxy import PlgSSL_Transport
+from ssl.curlXMLRPCServerProxy import PyCURLXMLRPCTransport
 import ssl.SSLCommon
 import struct
 import tempfile
@@ -1310,11 +1311,12 @@ class ClientSession(object):
         self._host = uri[1]
         self._path = uri[2]
         if self.opts.get('certs'):
-            ctx = ssl.SSLCommon.CreateSSLContext(self.opts['certs'])
-            transportOpts = {'ssl_context' : ctx}
+            #ctx = ssl.SSLCommon.CreateSSLContext(self.opts['certs'])
+            #transportOpts = {'ssl_context' : ctx}
+            transportOpts = {'certs' : opts['certs']}
             if self.opts.get('timeout'):
                 transportOpts['timeout'] = self.opts['timeout']
-            transportClass = PlgSSL_Transport
+            transportClass = PyCURLXMLRPCTransport
         elif scheme == 'https':
             transportOpts = {}
             transportClass = xmlrpclib.SafeTransport
@@ -1445,11 +1447,12 @@ class ClientSession(object):
         certs['ca_cert'] = ca
         certs['peer_ca_cert'] = serverca
 
-        ctx = SSLCommon.CreateSSLContext(self.opts['certs'])
-        transportOpts = {'ssl_context' : ctx}
+        #ctx = SSLCommon.CreateSSLContext(self.opts['certs'])
+        #transportOpts = {'ssl_context' : ctx}
+        transportOpts = {'certs' : certs}
         # 60 second timeout during login
         transportOpts['timeout'] = 60
-        self._transport = PlgSSL_Transport(**transportOpts)
+        self._transport = PyCURLXMLRPCTransport(**transportOpts)
         sinfo = self.callMethod('sslLogin', proxyuser)
         if not sinfo:
             raise AuthError, 'unable to obtain a session'
@@ -1459,7 +1462,7 @@ class ClientSession(object):
         # Some Koji operations can take a long time to return, but after 12
         # hours we can assume something is seriously wrong.
         transportOpts['timeout'] = self.opts.setdefault('timeout', 60 * 60 * 12)
-        self._transport = PlgSSL_Transport(**transportOpts)
+        self._transport = PyCURLXMLRPCTransport(**transportOpts)
         self.setSession(sinfo)
 
         return True
