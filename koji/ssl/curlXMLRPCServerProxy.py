@@ -62,10 +62,10 @@ class PyCURLXMLRPCTransport(xmlrpclib.Transport):
     def _check_return(self, host, handler, httpcode, buf):
         """Check for SSL certs validity"""
         if httpcode == 60:
-            raise xmlrpclib.ProtocolError( 
-                    host + handler, 
-                    httpcode, 
-                    "SSL certificate validation failed", 
+            raise xmlrpclib.ProtocolError(
+                    host + handler,
+                    httpcode,
+                    "SSL certificate validation failed",
                     None)
 
     def request(self, host, handler, request_body, verbose = 0):
