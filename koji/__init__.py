@@ -49,7 +49,7 @@ import urlparse
 import util
 import xmlrpclib
 from xmlrpclib import loads, Fault
-import ssl.curlXMLRPCServerProxy
+import ssl.XMLRPCServerProxy
 import OpenSSL.SSL
 
 def _(args):
@@ -1283,7 +1283,7 @@ class ClientSession(object):
             self.proxyOpts['verbose'] = 1
         if self.opts.get('certs'):
             self.proxyOpts['certs'] = self.opts['certs']
-            self.proxyClass = ssl.curlXMLRPCServerProxy.KojiXMLRPCServerProxy
+            self.proxyClass = ssl.XMLRPCServerProxy.PlgXMLRPCServerProxy
         else:
             self.proxyClass = xmlrpclib.ServerProxy
         if self.opts.get('timeout'):
@@ -1421,12 +1421,12 @@ class ClientSession(object):
         certs['peer_ca_cert'] = serverca
 
         # 60 second timeout during login
-        self.proxy = ssl.curlXMLRPCServerProxy.KojiXMLRPCServerProxy(self.baseurl, certs, timeout=60, **self.proxyOpts)
+        self.proxy = ssl.XMLRPCServerProxy.PlgXMLRPCServerProxy(self.baseurl, certs, timeout=60, **self.proxyOpts)
         sinfo = self.callMethod('sslLogin', proxyuser)
         if not sinfo:
             raise AuthError, 'unable to obtain a session'
 
-        self.proxyClass = ssl.curlXMLRPCServerProxy.KojiXMLRPCServerProxy
+        self.proxyClass = ssl.XMLRPCServerProxy.PlgXMLRPCServerProxy
         self.opts['certs'] = self.proxyOpts['certs'] = certs
         # 12 hour connection timeout.  Some Koji operations can take a long time to return,
         # but after 12 hours we can assume something is seriously wrong.
