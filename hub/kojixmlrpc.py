@@ -21,6 +21,7 @@
 #       Mike McLean <mikem@redhat.com>
 
 from ConfigParser import ConfigParser
+import logging
 import sys
 import time
 import traceback
@@ -39,20 +40,6 @@ from kojihub import RootExports
 from kojihub import HostExports
 from koji.context import context
 
-def _opt_bool(opts, name):
-    """Convert option into a boolean if necessary
-
-    For strings, the following values
-    will be considered True (case-insensitive):
-        yes, on, true, 1
-    Any other strings will be considered False."""
-    val = opts.get(name, False)
-    if isinstance(val, bool):
-        return val
-    elif isinstance(val, basestring):
-        if val.lower() in ('yes', 'on', 'true', '1'):
-            return True
-    return False
 
 class HandlerRegistry(object):
     """Track handlers for RPC calls"""
@@ -179,6 +166,7 @@ class ModXMLRPCRequestHandler(object):
     def __init__(self, handlers):
         self.traceback = False
         self.handlers = handlers  #expecting HandlerRegistry instance
+        self.logger = logging.getLogger('koji.xmlrpc')
 
     def _get_handler(self, name):
         # just a wrapper so we can handle multicall ourselves
@@ -188,15 +176,12 @@ class ModXMLRPCRequestHandler(object):
         else:
             return self.handlers.get(name)
 
-    def _marshaled_dispatch(self, data):
-        """Dispatches an XML-RPC method from marshalled (XML) data."""
+    def _wrap_handler(self, handler, req):
+        """Catch exceptions and encode response of handler"""
 
-        params, method = loads(data)
-
-        start = time.time()
         # generate response
         try:
-            response = self._dispatch(method, params)
+            response = handler(req)
             # wrap response in a singleton tuple
             response = (response,)
             response = dumps(response, methodresponse=1, allow_none=1)
@@ -211,7 +196,7 @@ class ModXMLRPCRequestHandler(object):
             tb_type = context.opts.get('KojiTraceback',None)
             tb_str = ''.join(traceback.format_exception(*sys.exc_info()))
             if issubclass(e_class, koji.GenericError):
-                if _opt_bool(context.opts, 'KojiDebug'):
+                if context.opts.get('KojiDebug'):
                     if tb_type == "extended":
                         faultString = koji.format_exc_plus()
                     else:
@@ -225,21 +210,24 @@ class ModXMLRPCRequestHandler(object):
                     faultString = koji.format_exc_plus()
                 else:
                     faultString = "%s: %s" % (e_class,e)
-            sys.stderr.write(tb_str)
-            sys.stderr.write('\n')
-            sys.stderr.flush()
+            self.logger.warning(tb_str)
             response = dumps(Fault(faultCode, faultString))
 
-        if _opt_bool(context.opts, 'KojiDebug'):
-            sys.stderr.write("Returning %d bytes after %f seconds\n" %
-                             (len(response),time.time() - start))
-            sys.stderr.flush()
-        
         return response
 
-    def _dispatch(self,method,params):
-        func = self._get_handler(method)
-        context.method = method
+    def handle_upload(self, req):
+        #uploads can't be in a multicall
+        context.method = None
+        self.check_session()
+        self.enforce_lockout()
+        return kojihub.handle_upload(req)
+
+    def handle_rpc(self, req):
+        data = req.read()
+        params, method = loads(data)
+        return self._dispatch(method, params)
+
+    def check_session(self):
         if not hasattr(context,"session"):
             #we may be called again by one of our meta-calls (like multiCall)
             #so we should only create a session if one does not already exist
@@ -248,31 +236,38 @@ class ModXMLRPCRequestHandler(object):
                 context.session.validate()
             except koji.AuthLockError:
                 #might be ok, depending on method
-                if method not in ('exclusiveSession','login', 'krbLogin', 'logout'):
+                if context.method not in ('exclusiveSession','login', 'krbLogin', 'logout'):
                     raise
-            if _opt_bool(context.opts, 'LockOut') and \
-                   method not in ('login', 'krbLogin', 'sslLogin', 'logout'):
-                if not context.session.hasPerm('admin'):
-                    raise koji.ServerOffline, "Server disabled for maintenance"
+
+    def enforce_lockout(self):
+        if context.opts.get('LockOut') and \
+            context.method not in ('login', 'krbLogin', 'sslLogin', 'logout') and \
+            not context.session.hasPerm('admin'):
+                raise koji.ServerOffline, "Server disabled for maintenance"
+
+    def _dispatch(self, method, params):
+        func = self._get_handler(method)
+        context.method = method
+        self.check_session()
+        self.enforce_lockout()
         # handle named parameters
         params,opts = koji.decode_args(*params)
 
-        if _opt_bool(context.opts, 'KojiDebug'):
-            sys.stderr.write("Handling method %s for session %s (#%s)\n" \
-                             % (method, context.session.id, context.session.callnum))
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug("Handling method %s for session %s (#%s)",
+                            method, context.session.id, context.session.callnum)
             if method != 'uploadFile':
-                sys.stderr.write("Params: %s\n" % pprint.pformat(params))
-                sys.stderr.write("Opts: %s\n" % pprint.pformat(opts))
+                self.logger.debug("Params: %s\n", pprint.pformat(params))
+                self.logger.debug("Opts: %s\n", pprint.pformat(opts))
             start = time.time()
-            
+
         ret = func(*params,**opts)
 
-        if _opt_bool(context.opts, 'KojiDebug'):
-            sys.stderr.write("Completed method %s for session %s (#%s): %f seconds\n"
-                             % (method, context.session.id, context.session.callnum,
-                                time.time()-start))
-            sys.stderr.flush()
-        
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug("Completed method %s for session %s (#%s): %f seconds",
+                            method, context.session.id, context.session.callnum,
+                            time.time()-start)
+
         return ret
 
     def multiCall(self, calls):
@@ -302,16 +297,40 @@ class ModXMLRPCRequestHandler(object):
     def handle_request(self,req):
         """Handle a single XML-RPC request"""
 
+        start = time.time()
         # XMLRPC uses POST only. Reject anything else
         if req.method != 'POST':
             req.allow_methods(['POST'],1)
             raise apache.SERVER_RETURN, apache.HTTP_METHOD_NOT_ALLOWED
 
-        response = self._marshaled_dispatch(req.read())
+        if req.headers_in.get('Content-Type') == 'application/octet-stream':
+            response = self._wrap_handler(self.handle_upload, req)
+        else:
+            response = self._wrap_handler(self.handle_rpc, req)
 
         req.content_type = "text/xml"
         req.set_content_length(len(response))
         req.write(response)
+        self.logger.debug("Returning %d bytes after %f seconds\n", len(response),
+                        time.time() - start)
+
+
+
+def dump_req(req):
+    data = [
+        "request: %s\n" % req.the_request,
+        "uri: %s\n" % req.uri,
+        "args: %s\n" % req.args,
+        "protocol: %s\n" % req.protocol,
+        "method: %s\n" % req.method,
+        "https: %s\n" % req.is_https(),
+        "auth_name: %s\n" % req.auth_name(),
+        "auth_type: %s\n" % req.auth_type(),
+        "headers:\n%s\n" % pprint.pformat(req.headers_in),
+    ]
+    for part in data:
+        sys.stderr.write(part)
+    sys.stderr.flush()
 
 
 def offline_reply(req, msg=None):
@@ -382,10 +401,13 @@ def load_config(req):
         ['VerbosePolicy', 'boolean', False],
         ['EnableFunctionDebug', 'boolean', False],
 
+        ['LogLevel', 'string', 'WARNING'],
+        ['LogFormat', 'string', '%(asctime)s [%(levelname)s] m=%(method)s u=%(user_name)s %(name)s: %(message)s'],
+
         ['MissingPolicyOk', 'boolean', True],
 
         ['LockOut', 'boolean', False],
-        ['ServerOffline', 'string', False],
+        ['ServerOffline', 'boolean', False],
         ['OfflineMessage', 'string', None],
     ]
     opts = {}
@@ -433,17 +455,17 @@ def load_plugins(opts):
     """Load plugins specified by our configuration"""
     if not opts['Plugins']:
         return
+    logger = logging.getLogger('koji.plugins')
     tracker = koji.plugin.PluginTracker(path=opts['PluginPath'].split(':'))
     for name in opts['Plugins'].split():
-        sys.stderr.write('Loading plugin: %s\n' % name)
+        logger.info('Loading plugin: %s\n', name)
         try:
             tracker.load(name)
         except Exception:
-            sys.stderr.write(''.join(traceback.format_exception(*sys.exc_info())))
+            logger.error(''.join(traceback.format_exception(*sys.exc_info())))
             #make this non-fatal, but set ServerOffline
             opts['ServerOffline'] = True
             opts['OfflineMessage'] = 'configuration error'
-        sys.stderr.flush()
     return tracker
 
 _default_policies = {
@@ -485,6 +507,64 @@ def get_policy(opts, plugins):
     return policy
 
 
+class HubFormatter(logging.Formatter):
+    """Support some koji specific fields in the format string"""
+
+    def format(self, record):
+        record.method = getattr(context, 'method', None)
+        if hasattr(context, 'session'):
+            record.user_id = context.session.user_id
+            record.session_id = context.session.id
+            record.callnum = context.session.callnum
+            record.user_name = context.session.user_data.get('name')
+        else:
+            record.user_id = None
+            record.session_id = None
+            record.callnum = None
+            record.user_name = None
+        return logging.Formatter.format(self, record)
+
+
+def setup_logging(opts):
+    #determine log level
+    level = opts['LogLevel']
+    valid_levels = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+    # the config value can be a single level name or a series of
+    # logger:level names pairs. processed in order found
+    default = None
+    for part in level.split():
+        pair = part.split(':', 1)
+        if len(pair) == 2:
+            name, level = pair
+        else:
+            name = 'koji'
+            level = part
+            default = level
+        if level not in valid_levels:
+            raise koji.GenericError, "Invalid log level: %s" % level
+        #all our loggers start with koji
+        if name == '':
+            name = 'koji'
+            default = level
+        elif name.startswith('.'):
+            name = 'koji' + name
+        elif not name.startswith('koji'):
+            name = 'koji.' + name
+        logging.getLogger(name).setLevel(level)
+    logger = logging.getLogger("koji")
+    # if KojiDebug is set, force main log level to DEBUG
+    if opts.get('KojiDebug'):
+        logger.setLevel(logging.DEBUG)
+    elif default is None:
+        #LogLevel did not configure a default level
+        logger.setLevel(logging.WARNING)
+    #for now, just stderr logging (stderr goes to httpd logs)
+    handler = logging.StreamHandler()
+    handler.setFormatter(HubFormatter(opts['LogFormat']))
+    handler.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+
 #
 # mod_python handler
 #
@@ -498,6 +578,7 @@ def handler(req, profiling=False):
     if firstcall:
         firstcall = False
         opts = load_config(req)
+        setup_logging(opts)
         plugins = load_plugins(opts)
         registry = get_registry(opts, plugins)
         policy = get_policy(opts, plugins)
@@ -521,7 +602,7 @@ def handler(req, profiling=False):
         _profiling_req = None
     else:
         try:
-            if _opt_bool(opts, 'ServerOffline'):
+            if opts.get('ServerOffline'):
                 offline_reply(req, msg=opts.get("OfflineMessage", None))
                 return apache.OK
             context._threadclear()
@@ -535,7 +616,7 @@ def handler(req, profiling=False):
                                   password = opts.get("DBPass",None),
                                   host = opts.get("DBHost", None))
             try:
-                context.cnx = koji.db.connect(_opt_bool(opts, 'KojiDebug'))
+                context.cnx = koji.db.connect()
             except Exception:
                 offline_reply(req, msg="database outage")
                 return apache.OK

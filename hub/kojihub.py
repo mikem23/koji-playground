@@ -23,6 +23,7 @@
 
 import base64
 import calendar
+import cgi
 import koji
 import koji.auth
 import koji.db
@@ -30,12 +31,10 @@ import koji.policy
 import datetime
 import errno
 import logging
-import logging.handlers
 import fcntl
 import fnmatch
 from koji.util import md5_constructor
 import os
-import pgdb
 import random
 import re
 import rpm
@@ -48,12 +47,15 @@ import types
 import xmlrpclib
 from koji.context import context
 
+
+logger = logging.getLogger('koji.hub')
+
 def log_error(msg):
     if hasattr(context,'req'):
         context.req.log_error(msg)
     else:
         sys.stderr.write(msg + "\n")
-    logging.getLogger('koji.hub').error(msg)
+    logger.error(msg)
 
 
 class Task(object):
@@ -4569,6 +4571,85 @@ def rpmdiff(basepath, rpmlist):
             raise koji.BuildError, 'mismatch when analyzing %s, rpmdiff output was:\n%s' % \
                 (os.path.basename(first_rpm), output)
 
+def importImageInternal(task_id, filename, filesize, arch, mediatype, hash, rpmlist):
+    """
+    Import image info and the listing into the database, and move an image
+    to the final resting place. The filesize may be reported as a string if it
+    exceeds the 32-bit signed integer limit. This function will convert it if
+    need be. Not called for scratch images.
+    """
+
+    #sanity checks
+    host = Host()
+    host.verify()
+    task = Task(task_id)
+    task.assertHost(host.id)
+
+    imageinfo = {}
+    imageinfo['id'] = _singleValue("""SELECT nextval('imageinfo_id_seq')""")
+    imageinfo['taskid'] = task_id
+    imageinfo['filename'] = filename
+    imageinfo['filesize'] = int(filesize)
+    imageinfo['arch'] = arch
+    imageinfo['mediatype'] = mediatype
+    imageinfo['hash'] = hash
+    q = """INSERT INTO imageinfo (id,task_id,filename,filesize,
+           arch,mediatype,hash)
+           VALUES (%(id)i,%(taskid)i,%(filename)s,%(filesize)i,
+           %(arch)s,%(mediatype)s,%(hash)s)
+        """
+    _dml(q, imageinfo)
+
+    q = """INSERT INTO imageinfo_listing (image_id,rpm_id)
+           VALUES (%(image_id)i,%(rpm_id)i)"""
+
+    rpm_ids = []
+    for an_rpm in rpmlist:
+        location = an_rpm.get('location')
+        if location:
+            data = add_external_rpm(an_rpm, location, strict=False)
+        else:
+            data = get_rpm(an_rpm, strict=True)
+        rpm_ids.append(data['id'])
+
+    image_id = imageinfo['id']
+    for rpm_id in rpm_ids:
+        _dml(q, locals())
+
+    return image_id
+
+def moveImageResults(task_id, image_id, arch):
+    """
+    Move the image file from the work/task directory into its more
+    permanent resting place. This shouldn't be called for scratch images.
+    """
+    source_path = os.path.join(koji.pathinfo.work(),
+                               koji.pathinfo.taskrelpath(task_id))
+    final_path = os.path.join(koji.pathinfo.imageFinalPath(),
+                              koji.pathinfo.livecdRelPath(image_id))
+    log_path = os.path.join(final_path, 'data', 'logs', arch)
+    if os.path.exists(final_path) or os.path.exists(log_path):
+        raise koji.GenericError, "Error moving LiveCD image: the final " + \
+            "destination already exists!"
+    koji.ensuredir(final_path)
+    koji.ensuredir(log_path)
+
+    src_files = os.listdir(source_path)
+    got_iso = False
+    for fname in src_files:
+        if fname.endswith('.iso'):
+            got_iso = True
+            dest_path = final_path
+        else:
+            dest_path = log_path
+        os.rename(os.path.join(source_path, fname),
+                  os.path.join(dest_path, fname))
+        os.symlink(os.path.join(dest_path, fname),
+                   os.path.join(source_path, fname))
+
+    if not got_iso:
+        raise koji.GenericError, "Could not move the iso to the final destination!"
+
 #
 # XMLRPC Methods
 #
@@ -4625,6 +4706,67 @@ class RootExports(object):
             taskOpts['channel'] = channel
 
         return make_task('chainbuild',[srcs,target,opts],**taskOpts)
+
+    # Create the livecd task. Called from handle_spin_livecd in the client.
+    #
+    def livecd (self, arch, target, ksfile, opts=None, priority=None):
+        """
+        Create a live CD image using a kickstart file and group package list.
+        """
+
+        context.session.assertPerm('livecd')
+
+        taskOpts = {'channel': 'livecd'}
+        taskOpts['arch'] = arch
+        if priority:
+            if priority < 0:
+                if not context.session.hasPerm('admin'):
+                    raise koji.ActionNotAllowed, \
+                               'only admins may create high-priority tasks'
+
+            taskOpts['priority'] = koji.PRIO_DEFAULT + priority
+
+        return make_task('createLiveCD', [arch, target, ksfile, opts],
+                         **taskOpts)
+
+    # Database access to get imageinfo values. Used in parts of kojiweb.
+    #
+    def getImageInfo(self, imageID=None, taskID=None, strict=False):
+        """
+        Return the row from imageinfo given an image_id OR build_root_id.
+        It is an error if neither are specified, and image_id takes precedence.
+        Filesize will be reported as a string if it exceeds the 32-bit signed
+        integer limit.
+        """
+        tables = ['imageinfo']
+        fields = ['imageinfo.id', 'filename', 'filesize', 'imageinfo.arch', 'mediatype',
+                  'imageinfo.task_id', 'buildroot.id', 'hash']
+        aliases = ['id', 'filename', 'filesize', 'arch', 'mediatype', 'task_id',
+                   'br_id', 'hash']
+        joins = ['buildroot ON imageinfo.task_id = buildroot.task_id']
+        if imageID:
+            clauses = ['imageinfo.id = %(imageID)i']
+        elif taskID:
+            clauses = ['imageinfo.task_id = %(taskID)i']
+        else:
+            raise koji.GenericError, 'either imageID or taskID must be specified'
+
+        query = QueryProcessor(columns=fields, tables=tables, clauses=clauses,
+                               values=locals(), joins=joins, aliases=aliases)
+        ret = query.executeOne()
+
+        if strict and not ret:
+            if imageID:
+                raise koji.GenericError, 'no image with ID: %i' % imageID
+            else:
+                raise koji.GenericError, 'no image for task ID: %i' % taskID
+
+        # additional tweaking
+        if ret:
+            # Always return filesize as a string instead of an int so XMLRPC doesn't
+            # complain about 32-bit overflow
+            ret['filesize'] = str(ret['filesize'])
+        return ret
 
     def hello(self,*args):
         return "Hello World"
@@ -4846,7 +4988,10 @@ class RootExports(object):
                     stat_map = {}
                     for attr in dir(stat_info):
                         if attr.startswith('st_'):
-                            stat_map[attr] = getattr(stat_info, attr)
+                            if attr == 'st_size':
+                                stat_map[attr] = str(getattr(stat_info, attr))
+                            else:
+                                stat_map[attr] = getattr(stat_info, attr)
                     ret[filename] = stat_map
             else:
                 ret = output
@@ -5489,8 +5634,8 @@ class RootExports(object):
                 mapping[int(key)] = mapping[key]
         return readFullInheritance(tag,event,reverse,stops,jumps)
 
-    def listRPMs(self, buildID=None, buildrootID=None, componentBuildrootID=None, hostID=None, arches=None, queryOpts=None):
-        """List RPMS.  If buildID and/or buildrootID are specified,
+    def listRPMs(self, buildID=None, buildrootID=None, imageID=None, componentBuildrootID=None, hostID=None, arches=None, queryOpts=None):
+        """List RPMS.  If buildID, imageID and/or buildrootID are specified,
         restrict the list of RPMs to only those RPMs that are part of that
         build, or were built in that buildroot.  If componentBuildrootID is specified,
         restrict the list to only those RPMs that will get pulled into that buildroot
@@ -5541,6 +5686,12 @@ class RootExports(object):
             fields.append(('buildroot_listing.is_update', 'is_update'))
             joins.append('buildroot_listing ON rpminfo.id = buildroot_listing.rpm_id')
             clauses.append('buildroot_listing.buildroot_id = %(componentBuildrootID)i')
+
+        # image specific constraints
+        if imageID != None:
+           clauses.append('imageinfo_listing.image_id = %(imageID)i')
+           joins.append('imageinfo_listing ON rpminfo.id = imageinfo_listing.rpm_id')
+
         if hostID != None:
             joins.append('buildroot ON rpminfo.buildroot_id = buildroot.id')
             clauses.append('buildroot.host_id = %(hostID)i')
@@ -7177,6 +7328,13 @@ class HostExports(object):
             _untag_build(fromtag,build,user_id=user_id,force=force,strict=True)
         _tag_build(tag,build,user_id=user_id,force=force)
 
+    # Called from kojid::LiveCDTask
+    def importImage(self, task_id, filename, filesize, arch, mediatype, hash, rpmlist):
+        image_id = importImageInternal(task_id, filename, filesize, arch, mediatype,
+                                       hash, rpmlist)
+        moveImageResults(task_id, image_id, arch)
+        return image_id
+
     def tagNotification(self, is_successful, tag_id, from_id, build_id, user_id, ignore_success=False, failure_msg=''):
         """Create a tag notification message.
         Handles creation of tagNotification tasks for hosts."""
@@ -7336,10 +7494,88 @@ class HostExports(object):
         host.verify()
         return host.isEnabled()
 
-# XXX - not needed anymore?
 def handle_upload(req):
     """Handle file upload via POST request"""
-    pass
+    # a work in progress
+    import pprint
+    sys.stderr.write(pprint.pformat(req.args))
+    if not context.session.logged_in:
+        raise koji.GenericError, 'you must be logged-in to upload a file'
+    args = cgi.parse_qs(req.args, strict_parsing=True)
+    sys.stderr.write(pprint.pformat(args))
+    #XXX - already parsed by auth
+    #TODO - handle offset
+    #XXX - unify logic with chunked xmlrpc upload
+    uploadpath = koji.pathinfo.work()
+    #XXX - have an incoming dir and move after upload complete
+    name = args['filename'][0]
+    path = args.get('filepath', ('',))[0]
+    verify = args.get('fileverify', ('',))[0]
+    # SECURITY - ensure path remains under uploadpath
+    path = os.path.normpath(path)
+    if path.startswith('..'):
+        raise koji.GenericError, "Upload path not allowed: %s" % path
+    udir = "%s/%s" % (uploadpath, path)
+    koji.ensuredir(udir)
+    fn = "%s/%s" % (udir,name)
+    try:
+        st = os.lstat(fn)
+    except OSError, e:
+        if e.errno == errno.ENOENT:
+            pass
+        else:
+            raise
+    else:
+        raise koji.GenericError, "upload path exists: %s" % fn
+        #XXX - support offsets, partial uploads, etc
+    if verify == 'md5':
+        sum = md5.new()
+    elif verify == 'adler32':
+        sum = koji.util.adler32_constructor()
+    elif verify:
+        raise koji.GenericError, "Unsupported verify type: %s" % verify
+    else:
+        sum = None
+    size = 0
+    fd = os.open(fn, os.O_RDWR | os.O_CREAT, 0666)
+    try:
+        while True:
+            try:
+                chunk = req.read(8192)
+            except IOError:
+                #XXX - do we really want to catch this?
+                break
+            if not chunk:
+                break
+            size += len(chunk)
+            if sum:
+                sum.update(chunk)
+            #XXX skip truncation - since we're assuming a new file
+            #write contents
+            fcntl.lockf(fd, fcntl.LOCK_EX|fcntl.LOCK_NB, len(chunk), 0, 2)
+            try:
+                os.write(fd, chunk)
+            finally:
+                fcntl.lockf(fd, fcntl.LOCK_UN, len(chunk), 0, 2)
+            sys.stderr.write("Got chunk, size %i (%i total)\n" % (len(chunk),size))
+            sys.stderr.flush()
+    finally:
+        os.close(fd)
+    if sum:
+        s = 'Upload complete. Size=%i, digest(%s)=%s\n' \
+                % (size, verify, sum.hexdigest())
+    else:
+        s = 'Upload complete. Size=%i\n' % size
+    sys.stderr.write(s)
+    sys.stderr.flush()
+    ret = {
+        'size' : size,
+        'fileverify' : verify,
+    }
+    if sum:
+        # unsigned 32bit - could be too big for xmlrpc
+        ret['digest'] = str(sum.digest())
+    return ret
 
 #koji.add_sys_logger("koji")
 
