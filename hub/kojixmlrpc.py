@@ -19,6 +19,7 @@
 #       Mike McLean <mikem@redhat.com>
 
 from ConfigParser import RawConfigParser
+import datetime
 import inspect
 import logging
 import os
@@ -29,7 +30,8 @@ import types
 import pprint
 import resource
 import xmlrpclib
-from xmlrpclib import getparser,dumps,Fault
+from types import GeneratorType, NoneType
+from xmlrpclib import getparser,dumps,Fault,MAXINT,MININT,escape
 from koji.server import WSGIWrapper
 
 import koji
@@ -41,20 +43,175 @@ import koji.util
 from koji.context import context
 
 
-# Workaround to allow xmlrpclib deal with iterators
-class Marshaller(xmlrpclib.Marshaller):
+def _strftime(value):
+    if isinstance(value, datetime.datetime):
+        return "%04d%02d%02dT%02d:%02d:%02d" % (
+            value.year, value.month, value.day,
+            value.hour, value.minute, value.second)
+    if not isinstance(value, (tuple, time.struct_time)):
+        if value == 0:
+            value = time.time()
+        value = time.localtime(value)
+    return "%04d%02d%02dT%02d:%02d:%02d" % value[:6]
 
-    dispatch = xmlrpclib.Marshaller.dispatch.copy()
 
-    def dump_generator(self, value, write):
-        dump = self.__dump
-        write("<value><array><data>\n")
+class MarshalledResponse(object):
+    """An alternate xmlrpc marshaller that makes use of iterators"""
+
+    def __init__(self, params):
+        if isinstance(params, tuple):
+            assert len(params) == 1, "response tuple must be a singleton"
+        else:
+            assert isinstance(params, Fault), "argument must be tuple or Fault instance"
+        self.params = params
+        self.memo = {}
+        self.encoding = "utf-8"
+
+    handlers = {}
+
+    def iter_dump(self):
+        """Iterates a series of strings representing the marshalled response"""
+        yield "<?xml version='1.0'?>\n" # utf-8 encoding by default
+        yield "<methodResponse>\n"
+        if isinstance(self.params, Fault):
+            yield "<fault>\n"
+            data = {'faultCode': self.params.faultCode,
+                    'faultString': self.params.faultString}
+            for s in self._idump(data):
+                yield s
+            yield "</fault>\n"
+        else:
+            yield "<params>\n"
+            for p in self.params:
+                yield "<param>\n"
+                for s in self._idump(p):
+                    yield s
+                yield "</param>\n"
+            yield "</params>\n"
+        yield "</methodResponse>\n"
+
+    def _iflatten(self, gen):  #XXX
+        """flatten a nested generator"""
+        assert isinstance(gen, GeneratorType)
+        stack = [gen]
+        while stack:
+            gen = stack[-1]
+            for val in gen:
+                if isinstance(val, GeneratorType):
+                    stack.append(val)
+                    break
+                else:
+                    yield val
+            else:
+                #closed out this generator
+                stack.pop()
+
+    def _idump(self, value):
+        return self._iflatten(self.__idump(value))
+
+    def __idump(self, value):
+        try:
+            handler = self.handlers[type(value)]
+        except KeyError:
+            raise TypeError, "cannot marshal %s objects" % type(value)
+        return handler(self, value)
+
+    def dump_nil(self, value):
+        yield "<value><nil/></value>"
+    handlers[NoneType] = dump_nil
+
+    def dump_int(self, value):
+        # in case ints are > 32 bits
+        if value > MAXINT or value < MININT:
+            raise OverflowError, "int exceeds XML-RPC limits"
+        yield "<value><int>"
+        yield str(value)
+        yield "</int></value>\n"
+    handlers[int] = dump_int
+
+    def dump_bool(self, value):
+        yield "<value><boolean>"
+        yield value and "1" or "0"
+        yield "</boolean></value>\n"
+    handlers[bool] = dump_bool
+
+    def dump_long(self, value):
+        if value > MAXINT or value < MININT:
+            raise OverflowError, "long int exceeds XML-RPC limits"
+        yield "<value><int>"
+        yield str(int(value))
+        yield "</int></value>\n"
+    handlers[long] = dump_long
+
+    def dump_double(self, value):
+        yield "<value><double>"
+        yield repr(value)
+        yield "</double></value>\n"
+    handlers[float] = dump_double
+
+    def dump_string(self, value):
+        yield "<value><string>"
+        yield escape(value) #XXX
+        yield "</string></value>\n"
+    handlers[str] = dump_string
+
+    def dump_unicode(self, value):
+        yield "<value><string>"
+        value = value.encode("utf-8") #XXX
+        yield escape(value)
+        yield "</string></value>\n"
+    handlers[unicode] = dump_unicode
+
+    def dump_generator(self, value):
+        idump = self.__idump
+        yield "<value><array><data>\n"
         for v in value:
-            dump(v, write)
-        write("</data></array></value>\n")
-    dispatch[types.GeneratorType] = dump_generator
+            yield idump(v)
+        yield "</data></array></value>\n"
+    handlers[GeneratorType] = dump_generator
+    #XXX - combine with dump_array?
 
-xmlrpclib.Marshaller = Marshaller
+    def dump_array(self, value):
+        i = id(value)
+        if i in self.memo:
+            raise TypeError, "cannot marshal recursive sequences"
+        self.memo[i] = None
+        idump = self.__idump
+        yield "<value><array><data>\n"
+        for v in value:
+            yield idump(v)
+        yield "</data></array></value>\n"
+        del self.memo[i]
+    handlers[tuple] = dump_array
+    handlers[list] = dump_array
+
+    def dump_struct(self, value):
+        i = id(value)
+        if i in self.memo:
+            raise TypeError, "cannot marshal recursive dictionaries"
+        self.memo[i] = None
+        idump = self.__idump
+        yield "<value><struct>\n"
+        for k in value:
+            v = value[k]
+            yield "<member>\n"
+            if type(k) is not str:
+                if type(k) is unicode:
+                    k = k.encode(self.encoding)
+                else:
+                    raise TypeError, "dictionary key must be string"
+            yield "<name>%s</name>\n" % escape(k)
+            yield idump(v)
+            yield "</member>\n"
+        yield "</struct></value>\n"
+        del self.memo[i]
+    handlers[dict] = dump_struct
+
+    def dump_datetime(self, value):
+        yield "<value><dateTime.iso8601>"
+        yield _strftime(value)
+        yield "</dateTime.iso8601></value>\n"
+    handlers[datetime.datetime] = dump_datetime
 
 
 class HandlerRegistry(object):
@@ -202,6 +359,7 @@ class ModXMLRPCRequestHandler(object):
         self.traceback = False
         self.handlers = handlers  #expecting HandlerRegistry instance
         self.logger = logging.getLogger('koji.xmlrpc')
+        self.content_length = None
 
     def _get_handler(self, name):
         # just a wrapper so we can handle multicall ourselves
@@ -210,6 +368,31 @@ class ModXMLRPCRequestHandler(object):
             return self.multiCall
         else:
             return self.handlers.get(name)
+
+    def __exc_helper(self, e_class, e):
+        # common exception handling bits
+        faultCode = getattr(e_class, 'faultCode', 1)
+        tb_type = context.opts['KojiTraceback']
+        tb_str = ''.join(traceback.format_exception(*sys.exc_info()))
+        self.logger.warning(tb_str)
+        if issubclass(e_class, Fault):
+            return e
+        if issubclass(e_class, koji.GenericError):
+            if context.opts['KojiDebug']:
+                if tb_type == "extended":
+                    faultString = koji.format_exc_plus()
+                else:
+                    faultString = tb_str
+            else:
+                faultString = str(e)
+        else:
+            if tb_type == "normal":
+                faultString = tb_str
+            elif tb_type == "extended":
+                faultString = koji.format_exc_plus()
+            else:
+                faultString = "%s: %s" % (e_class,e)
+        return Fault(faultCode, faultString)
 
     def _read_request(self, stream):
         parser, unmarshaller = getparser()
@@ -234,36 +417,75 @@ class ModXMLRPCRequestHandler(object):
             response = handler(environ)
             # wrap response in a singleton tuple
             response = (response,)
-            response = dumps(response, methodresponse=1, allow_none=1)
+            response = MarshalledResponse(response)
+            response = self.wrap_response(response)
         except Fault, fault:
             self.traceback = True
-            response = dumps(fault)
+            response = MarshalledResponse(fault)
         except:
             self.traceback = True
-            # report exception back to server
             e_class, e = sys.exc_info()[:2]
-            faultCode = getattr(e_class,'faultCode',1)
-            tb_type = context.opts.get('KojiTraceback',None)
-            tb_str = ''.join(traceback.format_exception(*sys.exc_info()))
-            if issubclass(e_class, koji.GenericError):
-                if context.opts.get('KojiDebug'):
-                    if tb_type == "extended":
-                        faultString = koji.format_exc_plus()
-                    else:
-                        faultString = tb_str
-                else:
-                    faultString = str(e)
-            else:
-                if tb_type == "normal":
-                    faultString = tb_str
-                elif tb_type == "extended":
-                    faultString = koji.format_exc_plus()
-                else:
-                    faultString = "%s: %s" % (e_class,e)
-            self.logger.warning(tb_str)
-            response = dumps(Fault(faultCode, faultString))
-
+            fault = self.__exc_helper(e_class, e)
+            response = MarshalledResponse(fault)
         return response
+
+    def wrap_response(self, response):
+        """Convert the response iterable into a sequence of chunks
+
+        Chunk size is determined by ReplyBufferLength option.
+        Sets self.content_length if response fits in first chunk
+        """
+
+        start = time.time()
+        bufmax = context.opts['ReplyBufferLength']
+        def fillbuf(_iter):
+            buf = []
+            blen = 0
+            full = False
+            for s in _iter:
+                buf.append(s)
+                blen += len(s)
+                if bufmax and blen > bufmax:
+                    full = True
+                    break
+            return buf, blen, full
+        idump = response.iter_dump()
+        try:
+            self.logger.debug("filling reply buffer")
+            buf, rlen, full = fillbuf(idump)
+            if full:
+                self.logger.warning("reply exceeds max length. content-length will be omitted")
+            else:
+                self.content_length = rlen
+        except:
+            self.traceback = True
+            e_class, e = sys.exc_info()[:2]
+            fault = self.__exc_helper(e_class, e)
+            f_str = "".join(MarshalledResponse(fault).iter_dump())
+            self.content_length = len(f_str)
+            yield f_str
+            return
+        self.logger.debug("yielding reply buffer (%i bytes)", rlen)
+        yield "".join(buf))
+        del buf
+        try:
+            while True:
+                self.logger.debug("filling reply buffer")
+                buf, blen, full = fillbuf(idump)
+                if not buf:
+                    break
+                rlen += blen
+                self.logger.debug("yielding reply buffer (%i bytes, total %i bytes)", blen, rlen)
+                yield "".join(buf)
+                del buf
+            self.logger.debug("Yielded %d bytes in %f seconds", rlen,
+                        time.time() - start)
+        except:
+            self.traceback = True
+            e_class, e = sys.exc_info()[:2]
+            fault = self.__exc_helper(e_class, e)
+            # XXX at this point we can't send a sane response
+            return
 
     def handle_upload(self, environ):
         #uploads can't be in a multicall
@@ -448,7 +670,8 @@ def load_config(environ):
         ['RLIMIT_STACK', 'string', None],
 
         ['MemoryWarnThreshold', 'integer', 5000],
-        ['MaxRequestLength', 'integer', 4194304],
+        ['MaxRequestLength', 'integer', 4*1024*1024],
+        ['ReplyBufferLength', 'integer', 10*1024*1024],
 
         ['LockOut', 'boolean', False],
         ['ServerOffline', 'boolean', False],
@@ -712,7 +935,6 @@ def application(environ, start_response):
         return [response]
     if opts.get('ServerOffline'):
         return offline_reply(start_response, msg=opts.get("OfflineMessage", None))
-    # XXX check request length
     # XXX most of this should be moved elsewhere
     if 1:
         try:
@@ -735,9 +957,10 @@ def application(environ, start_response):
             else:
                 response = h._wrap_handler(h.handle_rpc, environ)
             headers = [
-                ('Content-Length', str(len(response))),
                 ('Content-Type', "text/xml"),
             ]
+            if h.content_length is not None:
+                headers.append(('Content-Length', str(h.content_length)))
             start_response('200 OK', headers)
             if h.traceback:
                 #rollback
@@ -750,8 +973,6 @@ def application(environ, start_response):
                 if len(paramstr) > 120:
                     paramstr = paramstr[:117] + "..."
                 h.logger.warning("Memory usage of process %d grew from %d KiB to %d KiB (+%d KiB) processing request %s with args %s" % (os.getpid(), memory_usage_at_start, memory_usage_at_end, memory_usage_at_end - memory_usage_at_start, context.method, paramstr))
-            h.logger.debug("Returning %d bytes after %f seconds", len(response),
-                        time.time() - start)
         finally:
             #make sure context gets cleaned up
             if hasattr(context,'cnx'):
@@ -760,7 +981,7 @@ def application(environ, start_response):
                 except Exception:
                     pass
             context._threadclear()
-        return [response] #XXX
+        return response
 
 
 def get_registry(opts, plugins):

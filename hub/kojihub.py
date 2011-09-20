@@ -8806,7 +8806,8 @@ class RootExports(object):
                             val = base64.decodestring(val)
                         data, method = xmlrpclib.loads(val)
                     except xmlrpclib.Fault, fault:
-                        data = fault
+                        # return as a dict
+                        data = vars(fault)
                     task[f] = data
             yield task
 
