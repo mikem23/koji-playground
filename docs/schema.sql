@@ -269,6 +269,15 @@ CREATE TABLE volume (
 
 INSERT INTO volume (id, name) VALUES (0, 'DEFAULT');
 
+
+CREATE TABLE namespace (
+        id SERIAL NOT NULL PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL
+) WITHOUT OIDS;
+
+INSERT INTO namespace (id, name) VALUES (0, 'DEFAULT');
+
+
 -- here we track the built packages
 -- this is at the srpm level, since builds are by srpm
 -- see rpminfo for isolated packages
@@ -278,6 +287,7 @@ INSERT INTO volume (id, name) VALUES (0, 'DEFAULT');
 CREATE TABLE build (
 	id SERIAL NOT NULL PRIMARY KEY,
         volume_id INTEGER NOT NULL REFERENCES volume (id),
+        namespace_id INTEGER REFERENCES namespace (id),
 	pkg_id INTEGER NOT NULL REFERENCES package (id) DEFERRABLE,
 	version TEXT NOT NULL,
 	release TEXT NOT NULL,
@@ -287,7 +297,8 @@ CREATE TABLE build (
 	state INTEGER NOT NULL,
 	task_id INTEGER REFERENCES task (id),
 	owner INTEGER NOT NULL REFERENCES users (id),
-	CONSTRAINT build_pkg_ver_rel UNIQUE (pkg_id, version, release),
+	CONSTRAINT build_pkg_ver_rel UNIQUE (namespace_id, pkg_id, version, release),
+--      note that namespace can be null, which allows arbitrary nvr overlap
 	CONSTRAINT completion_sane CHECK ((state = 0 AND completion_time IS NULL) OR
                                           (state != 0 AND completion_time IS NOT NULL))
 ) WITHOUT OIDS;
@@ -609,6 +620,7 @@ CREATE TABLE rpminfo (
 	id SERIAL NOT NULL PRIMARY KEY,
 	build_id INTEGER REFERENCES build (id),
 	buildroot_id INTEGER REFERENCES buildroot (id),
+        namespace_id INTEGER REFERENCES namespace (id),
 	name TEXT NOT NULL,
 	version TEXT NOT NULL,
 	release TEXT NOT NULL,
@@ -618,7 +630,8 @@ CREATE TABLE rpminfo (
 	payloadhash TEXT NOT NULL,
 	size BIGINT NOT NULL,
 	buildtime BIGINT NOT NULL,
-	CONSTRAINT rpminfo_unique_nvra UNIQUE (name,version,release,arch,external_repo_id)
+	CONSTRAINT rpminfo_unique_nvra UNIQUE (namespace_id,name,version,release,arch,external_repo_id)
+--      note that namespace can be null, which allows arbitrary nvra overlap
 ) WITHOUT OIDS;
 CREATE INDEX rpminfo_build ON rpminfo(build_id);
 
