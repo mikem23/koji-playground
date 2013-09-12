@@ -1455,9 +1455,22 @@ class PathInfo(object):
         #else
         return self.topdir + ("/vol/%s" % volume)
 
-    def build(self,build):
-        """Return the directory where a build belongs"""
+    def oldbuild(self,build):
+        """Return the (old style) directory where a build belongs"""
         return self.volumedir(build.get('volume_name')) + ("/packages/%(name)s/%(version)s/%(release)s" % build)
+
+    def build(self, build):
+        """Return the directory where a build belongs"""
+        # compat mode (e.g. if current client is talking to older hub)
+        if 'namespace' not in build and 'namespace_id' not in build:
+            return self.oldbuild(build)
+        parts = [self.volumedir(build.get('volume_name')), 'builds']
+        # split the build id (for manageable directory sizes)
+        b_id = str(build['id'])
+        n_parts = [b_id[i:i+3] for i in range(0,len(b_id),3)]
+        parts.extend(n_parts)
+        parts.append('b')  # ??
+        return '/'.join(parts)
 
     def mavenbuild(self, build):
         """Return the directory where the Maven build exists in the global store (/mnt/koji/packages)"""
