@@ -1145,6 +1145,7 @@ def readTaggedBuilds(tag,event=None,inherit=False,latest=False,package=None,owne
               ('build.task_id','task_id'),
               ('events.id', 'creation_event_id'), ('events.time', 'creation_time'),
               ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+              ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
               ('package.id', 'package_id'), ('package.name', 'package_name'),
               ('package.name', 'name'),
               ("package.name || '-' || build.version || '-' || build.release", 'nvr'),
@@ -1177,6 +1178,7 @@ def readTaggedBuilds(tag,event=None,inherit=False,latest=False,package=None,owne
     JOIN events ON events.id = build.create_event
     JOIN package ON package.id = build.pkg_id
     JOIN volume ON volume.id = build.volume_id
+    JOIN namespace ON namespace.id = build.namespace_id
     WHERE %s AND tag_id=%%(tagid)s
         AND build.state=%%(st_complete)i
     """ % (', '.join([pair[0] for pair in fields]), type_join, eventCondition(event, 'tag_listing'))
@@ -2087,6 +2089,7 @@ def maven_tag_archives(tag_id, event_id=None, inherit=True):
               ('build.state', 'state'), ('build.task_id', 'task_id'),
               ('build.owner', 'owner'),
               ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+              ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
               ('archiveinfo.id', 'id'), ('archiveinfo.type_id', 'type_id'),
               ('archiveinfo.buildroot_id', 'buildroot_id'),
               ('archiveinfo.filename', 'filename'), ('archiveinfo.size', 'size'),
@@ -2100,6 +2103,7 @@ def maven_tag_archives(tag_id, event_id=None, inherit=True):
     joins = ['tag ON tag_listing.tag_id = tag.id',
              'build ON tag_listing.build_id = build.id',
              'volume ON build.volume_id = volume.id',
+             'namespace ON build.namespace_id = namespace.id',
              'package ON build.pkg_id = package.id',
              'archiveinfo ON build.id = archiveinfo.build_id',
              'maven_archives ON archiveinfo.id = maven_archives.archive_id']
@@ -2263,6 +2267,7 @@ def repo_init(tag, with_src=False, with_debuginfo=False, event=None):
                          'release': archive['build_release'],
                          'epoch': archive['build_epoch'],
                          'volume_name': archive['volume_name'],
+                         'namespace': archive['namespace'],
                         }
             srcdir = os.path.join(koji.pathinfo.mavenbuild(buildinfo),
                                   koji.pathinfo.mavenrepo(archive))
@@ -3211,6 +3216,8 @@ def get_build(buildInfo, strict=False):
       owner_name: name of the user who kicked off the build
       volume_id: ID of the storage volume
       volume_name: name of the storage volume
+      namespace_id: ID of the build namespace
+      namespace: name of the build namespace
       creation_event_id: id of the create_event
       creation_time: time the build was created (text)
       creation_ts: time the build was created (epoch)
@@ -3232,6 +3239,7 @@ def get_build(buildInfo, strict=False):
               ('build.task_id', 'task_id'), ('events.id', 'creation_event_id'), ('events.time', 'creation_time'),
               ('package.id', 'package_id'), ('package.name', 'package_name'), ('package.name', 'name'),
               ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+              ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
               ("package.name || '-' || build.version || '-' || build.release", 'nvr'),
               ('EXTRACT(EPOCH FROM events.time)','creation_ts'),
               ('EXTRACT(EPOCH FROM build.completion_time)','completion_ts'),
@@ -3241,6 +3249,7 @@ def get_build(buildInfo, strict=False):
     JOIN events ON build.create_event = events.id
     JOIN package on build.pkg_id = package.id
     JOIN volume on build.volume_id = volume.id
+    JOIN namespace on build.namespace_id = namespace.id
     JOIN users on build.owner = users.id
     WHERE build.id = %%(buildID)i""" % ', '.join([pair[0] for pair in fields])
 
@@ -4301,6 +4310,71 @@ def change_build_volume(build, volume, strict=True):
     koji.plugin.run_callbacks('postBuildStateChange', attribute='volume_id', old=old_binfo['volume_id'], new=volinfo['id'], info=binfo)
 
 
+def add_namespace(name, strict=True):
+    """Add a new build namespace in the database"""
+    context.session.assertPerm('admin')
+    if strict:
+        info = lookup_name('namespace', name, strict=False)
+        if info:
+            raise koji.GenericError, 'namespace %s already exists' % name
+    info = lookup_name('namespace', name, strict=False, create=True)
+    return info
+
+def remove_namespace(namespace):
+    """Remove unused build namespace from the database"""
+    context.session.assertPerm('admin')
+    info = lookup_name('namespace', namespace, strict=True)
+    query = QueryProcessor(tables=['build'], clauses=['namespace_id=%(id)i'],
+                    values=info, columns=['id'], opts={'limit':1})
+    if query.execute():
+        raise koji.GenericError, 'namespace %(name)s has build references' % info
+    query = QueryProcessor(tables=['rpminfo'], clauses=['namespace_id=%(id)i'],
+                    values=info, columns=['id'], opts={'limit':1})
+    if query.execute():
+        raise koji.GenericError, 'namespace %(name)s has rpm references' % info
+    delete = """DELETE FROM namespace WHERE id=%(id)i"""
+    _dml(delete, info)
+
+def list_namespaces():
+    """List known namespaces"""
+    return QueryProcessor(tables=['namespace'], columns=['id', 'name']).execute()
+
+def change_build_namespace(build, namespace, strict=True):
+    """Move a build to a different namespace
+
+    If strict is True (the default), then the call will error if the build is
+    already in the requested namespace.
+    """
+    context.session.assertPerm('admin')
+    nsinfo = lookup_name('namespace', namespace, strict=True)
+    binfo = get_build(build, strict=True)
+    changes = False
+    if binfo['namespace_id'] == nsinfo['id']:
+        if strict:
+            raise koji.GenericError, "Build %(nvr)s already in namespace %(namespace)s" % binfo
+        else:
+            #nothing to do
+            return
+    state = koji.BUILD_STATES[binfo['state']]
+    if state not in ['COMPLETE', 'DELETED']:
+        raise koji.GenericError, "Build %s is %s" % (binfo['nvr'], state)
+
+    # Update the db
+    koji.plugin.run_callbacks('preBuildStateChange', attribute='namespace_id',
+                old=old_binfo['namespace_id'], new=nsinfo['id'], info=binfo)
+    update = UpdateProcessor('build', clauses=['id=%(id)i'], values=binfo)
+    update.set(namespace_id=nsinfo['id'])
+    update.execute()
+    update = UpdateProcessor('rpminfo', clauses=['build_id=%(id)i'], values=binfo)
+    update.set(namespace_id=nsinfo['id'])
+    update.execute()
+
+    # TODO - handle old-build-dir symlinks if one of the namespaces is the default
+
+    koji.plugin.run_callbacks('postBuildStateChange', attribute='namespace_id',
+                old=old_binfo['namespace_id'], new=nsinfo['id'], info=binfo)
+
+
 def new_build(data):
     """insert a new build entry"""
     data = data.copy()
@@ -4321,6 +4395,7 @@ def new_build(data):
     data.setdefault('owner',context.session.user_id)
     data.setdefault('task_id',None)
     data.setdefault('volume_id', 0)
+    data.setdefault('namespace_id', 0)
     #check for existing build
     # TODO - table lock?
     q="""SELECT id,state,task_id FROM build
@@ -4353,7 +4428,7 @@ def new_build(data):
         koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=None, new=data['state'], info=data)
     #insert the new data
     insert_data = dslice(data, ['pkg_id', 'version', 'release', 'epoch', 'state', 'volume_id',
-                         'task_id', 'owner', 'completion_time'])
+                         'namespace_id', 'task_id', 'owner', 'completion_time'])
     data['id'] = insert_data['id'] = _singleValue("SELECT nextval('build_id_seq')")
     insert = InsertProcessor('build', data=insert_data)
     insert.execute()
@@ -6563,6 +6638,25 @@ class VolumeTest(koji.policy.MatchTest):
         data[self.field] = volinfo['name']
         return super(VolumeTest, self).run(data)
 
+
+class NamespaceTest(koji.policy.MatchTest):
+    """Checks build namespace against glob patterns"""
+    name = 'namespace'
+    field = '_namespace'
+    def run(self, data):
+        #we need to find the namespace from the base data
+        info = None
+        if 'namespace' in data:
+            info = lookup_name('namespace', data['namespace'], strict=False)
+        elif 'build' in data:
+            build = get_build(data['build'])
+            info = {'id': build['namespace_id'], 'name': build['namespace']}
+        if not info:
+            return False
+        data[self.field] = info['name']
+        return super(NamespaceTest, self).run(data)
+
+
 class TagTest(koji.policy.MatchTest):
     name = 'tag'
     field = '_tagname'
@@ -7546,6 +7640,13 @@ class RootExports(object):
     def getVolume(self, volume, strict=False):
         return lookup_name('volume', volume, strict=strict)
 
+    addNamespace = staticmethod(add_namespace)
+    removeNamespace = staticmethod(remove_namespace)
+    listNamespaces = staticmethod(list_namespaces)
+    changeBuildNamespace = staticmethod(change_build_namespace)
+    def getNamespace(self, namespace, strict=False):
+        return lookup_name('namespace', namespace, strict=strict)
+
     def createEmptyBuild(self, name, version, release, epoch, owner=None):
         context.session.assertPerm('admin')
         data = { 'name' : name, 'version' : version, 'release' : release,
@@ -7975,7 +8076,7 @@ class RootExports(object):
         return readTaggedArchives(tag, event=event, inherit=inherit, latest=latest, package=package, type=type)
 
     def listBuilds(self, packageID=None, userID=None, taskID=None, prefix=None, state=None,
-                   volumeID=None,
+                   volumeID=None, namespaceID=None,
                    createdBefore=None, createdAfter=None,
                    completeBefore=None, completeAfter=None, type=None, typeInfo=None, queryOpts=None):
         """List package builds.
@@ -7984,6 +8085,7 @@ class RootExports(object):
         If taskID is specfied, restrict the results to builds with the given task ID.  If taskID is -1,
            restrict the results to builds with a non-null taskID.
         If volumeID is specified, restrict the results to builds stored on that volume
+        If namespaceID is specified, restrict the results to builds in that namespace
         One or more of packageID, userID, volumeID, and taskID may be specified.
         If prefix is specified, restrict the results to builds whose package name starts with that
         prefix.
@@ -8015,6 +8117,8 @@ class RootExports(object):
           - owner_name
           - volume_id
           - volume_name
+          - namespace_id
+          - namespace
           - creation_event_id
           - creation_time
           - creation_ts
@@ -8037,6 +8141,7 @@ class RootExports(object):
                   ('EXTRACT(EPOCH FROM build.completion_time)','completion_ts'),
                   ('package.id', 'package_id'), ('package.name', 'package_name'), ('package.name', 'name'),
                   ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+                  ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
                   ("package.name || '-' || build.version || '-' || build.release", 'nvr'),
                   ('users.id', 'owner_id'), ('users.name', 'owner_name')]
 
@@ -8044,6 +8149,7 @@ class RootExports(object):
         joins = ['events ON build.create_event = events.id',
                  'package ON build.pkg_id = package.id',
                  'volume ON build.volume_id = volume.id',
+                 'namespace ON build.namespace_id = namespace.id',
                  'users ON build.owner = users.id']
         clauses = []
         if packageID != None:
@@ -8052,6 +8158,8 @@ class RootExports(object):
             clauses.append('users.id = %(userID)i')
         if volumeID != None:
             clauses.append('volume.id = %(volumeID)i')
+        if namespaceID != None:
+            clauses.append('namespace.id = %(namespaceID)i')
         if taskID != None:
             if taskID == -1:
                 clauses.append('build.task_id IS NOT NULL')
