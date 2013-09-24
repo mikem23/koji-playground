@@ -856,23 +856,32 @@ def get_header_fields(X,fields):
     return ret
 
 def parse_NVR(nvr):
-    """split N-V-R into dictionary of data"""
+    """Parse a build identifier string
+
+    Originally this was simply N-V-R, but now things are more complicated
+    Recognized formats:
+        N-V-R
+        E:N-V-R
+        NS::N-V-R
+        NS::E:N-V-R
+    """
     ret = {}
-    p2 = nvr.rfind("-",0)
-    if p2 == -1 or p2 == len(nvr) - 1:
+    parts = nvr.rsplit('-', 2)
+    if len(parts) != 3:
         raise GenericError("invalid format: %s" % nvr)
-    p1 = nvr.rfind("-",0,p2)
-    if p1 == -1 or p1 == p2 - 1:
-        raise GenericError("invalid format: %s" % nvr)
-    ret['release'] = nvr[p2+1:]
-    ret['version'] = nvr[p1+1:p2]
-    ret['name'] = nvr[:p1]
-    epochIndex = ret['name'].find(':')
-    if epochIndex == -1:
-        ret['epoch'] = ''
+    ret['release'] = parts[2]
+    ret['version'] = parts[1]
+    head = parts[0]
+    parts = head.split('::', 1)
+    if len(parts) == 2:
+        ret['namespace'] = parts[0]
+        head = parts[1]
+    parts = head.split(':', 1)
+    if len(parts) == 2:
+        ret['epoch'] = parts[0]
+        ret['name'] = parts[1]
     else:
-        ret['epoch'] = ret['name'][:epochIndex]
-        ret['name'] = ret['name'][epochIndex + 1:]
+        ret['epoch'] = ''
     return ret
 
 def parse_NVRA(nvra):
