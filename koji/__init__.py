@@ -882,6 +882,7 @@ def parse_NVR(nvr):
         ret['name'] = parts[1]
     else:
         ret['epoch'] = ''
+        ret['name'] = head
     return ret
 
 def parse_NVRA(nvra):
