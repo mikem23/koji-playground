@@ -1,5 +1,6 @@
 -- schema updates for namespaces
 
+BEGIN;
 
 
 CREATE TABLE namespace (
@@ -29,4 +30,5 @@ ALTER TABLE rpminfo ADD CONSTRAINT rpminfo_namespace_sanity UNIQUE (namespace_id
 --      note that namespace_id can be null, which allows arbitrary nvr overlap
 
 
+COMMIT;
 
