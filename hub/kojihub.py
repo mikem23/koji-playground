@@ -4317,6 +4317,12 @@ def add_namespace(name, strict=True):
         info = lookup_name('namespace', name, strict=False)
         if info:
             raise koji.GenericError, 'namespace %s already exists' % name
+    if not isinstance(name, basestring):
+        raise koji.GenericError, 'Name must be a string'
+    if len(name) == 0:
+        raise koji.GenericError, 'The empty string may not be used as a namespace'
+    if name.find('::') != -1:
+        raise koji.GenericError, 'Namespaces may not contain ::'
     info = lookup_name('namespace', name, strict=False, create=True)
     return info
 

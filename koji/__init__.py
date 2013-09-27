@@ -1474,11 +1474,18 @@ class PathInfo(object):
 
     def build(self, build):
         """Return the directory where a build belongs"""
-        # compat mode (e.g. if current client is talking to older hub)
         if 'namespace' not in build and 'namespace_id' not in build:
+            # compat mode for older hub
             return self.oldbuild(build)
+        elif build.get('namespace_id') == 0 or build.get('namespace') = 'DEFAULT':
+            # to ease migration we report the old path for the default namespace
+            return self.oldbuild(build)
+        else:
+            return self.newbuild(build)
+
+    def newbuild(self, build):
         parts = [self.volumedir(build.get('volume_name')), 'builds']
-        # split the build id (for manageable directory sizes)
+        # split the build id for manageable directory sizes
         b_id = str(build['id'])
         n_parts = [b_id[i:i+3] for i in range(0,len(b_id),3)]
         parts.extend(n_parts)
