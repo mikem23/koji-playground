@@ -4358,7 +4358,10 @@ def change_build_namespace(build, namespace, strict=True):
     already in the requested namespace.
     """
     context.session.assertPerm('admin')
-    nsinfo = lookup_name('namespace', namespace, strict=True)
+    if namespace is None:
+        nsinfo = {'id': None, 'name':None}
+    else:
+        nsinfo = lookup_name('namespace', namespace, strict=True)
     binfo = get_build(build, strict=True)
     state = koji.BUILD_STATES[binfo['state']]
     # TODO - acquire row lock
