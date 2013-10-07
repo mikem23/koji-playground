@@ -1648,6 +1648,7 @@ def handle_import(options, session, args):
     def do_import(path, data):
         rinfo = dict([(k,data[k]) for k in ('name','version','release','arch')])
         rinfo['namespace_id'] = nsinfo['id']
+        rinfo['location'] = 0
         prev = session.getRPM(rinfo)
         if prev and not prev.get('external_repo_id', 0):
             if prev['payloadhash'] == koji.hex_string(data['sigmd5']):
