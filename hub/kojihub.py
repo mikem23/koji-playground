@@ -3190,33 +3190,56 @@ def get_user(userInfo=None,strict=False):
         raise koji.GenericError, 'invalid type for userInfo: %s' % type(userInfo)
     return _singleRow(q,locals(),fields,strict=strict)
 
-def find_build_id(X):
+
+def find_build_id(X, strict=False):
     if isinstance(X,int) or isinstance(X,long):
         return X
-    elif isinstance(X,str):
+    elif isinstance(X,basestring):
         data = koji.parse_NVR(X)
     elif isinstance(X,dict):
         data = X
     else:
         raise koji.GenericError, "Invalid argument: %r" % X
 
-    if not (data.has_key('name') and data.has_key('version') and
-            data.has_key('release')):
-        raise koji.GenericError, 'did not provide name, version, and release'
+    for key in 'name', 'version', 'release':
+        if key not in data:
+            raise koji.GenericError, 'Invalid build specification: no value for %s' % key
 
-    c=context.cnx.cursor()
-    q="""SELECT build.id FROM build JOIN package ON build.pkg_id=package.id
-    WHERE package.name=%(name)s AND build.version=%(version)s
-    AND build.release=%(release)s
-    """
-    # contraints should ensure this is unique
-    #log_error(koji.db._quoteparams(q,data))
-    c.execute(q,data)
-    r=c.fetchone()
-    #log_error("%r" % r )
-    if not r:
+    clauses = ['package.name = %(name)s', 'build.version = %(version)s', 'build.release=%(release)s']
+    joins = ['package ON build.pkg_id = package.id']
+    if 'namespace_id' in data:
+        # explicitly passed in via dict
+        if data['namespace_id'] is None:
+            clauses.append('build.namespace_id IS NULL')
+        else:
+            clauses.append('build.namespace_id = %(namespace_id)s')
+    elif 'namespace' in data:
+        # passed in via dict or :: prefix on nvr
+        if data['namespace'] is None:
+            clauses.append('build.namespace_id IS NULL')
+        else:
+            joins.append('namespace ON build.namespace_id = namespace.id')
+            clauses.append('namespace.name = %(namespace)s')
+    query = QueryProcessor(tables=['build'], joins=joins, columns=['build.id', 'build.namespace_id'],
+                           clauses=clauses, values=data,
+                           opts={'order': '-build.id', 'asList': True})
+    builds = query.execute()
+
+    if not builds:
+        if strict:
+            raise koji.GenericError, "No matching build found: %s" % X
         return None
-    return r[0]
+    if len(builds) == 1:
+        return builds[0][0]
+    # multiple builds, choose default namespace first
+    if strict:
+        raise koji.GenericError, "Multiple matching builds for: %r" % X
+    for row in builds:
+        if row[1] == 0
+            return row[0]
+    #otherwise
+    return builds[0][0]
+
 
 def get_build(buildInfo, strict=False):
     """Return information about a build.  buildID may be either
@@ -3247,12 +3270,9 @@ def get_build(buildInfo, strict=False):
     If there is no build matching the buildInfo given, and strict is specified,
     raise an error.  Otherwise return None.
     """
-    buildID = find_build_id(buildInfo)
+    buildID = find_build_id(buildInfo, strict=strict)
     if buildID == None:
-        if strict:
-            raise koji.GenericError, 'No matching build found: %s' % buildInfo
-        else:
-            return None
+        return None
 
     fields = (('build.id', 'id'), ('build.version', 'version'), ('build.release', 'release'),
               ('build.epoch', 'epoch'), ('build.state', 'state'), ('build.completion_time', 'completion_time'),
