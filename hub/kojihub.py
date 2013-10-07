@@ -3235,9 +3235,9 @@ def find_build_id(X, strict=False):
     if strict:
         raise koji.GenericError, "Multiple matching builds for: %r" % X
     for row in builds:
-        if row[1] == 0
+        if row[1] == 0:
             return row[0]
-    #otherwise
+    #otherwise first match
     return builds[0][0]
 
 
@@ -3335,10 +3335,9 @@ def get_rpm(rpminfo, strict=False, multi=False):
 
     rpminfo may be any one of the following:
     - a int ID
-    - a string N-V-R.A
-    - a string N-V-R.A@location
+    - any form understood by koji.parse_NVRA
     - a map containing 'name', 'version', 'release', and 'arch'
-      (and optionally 'location')
+      (optional: 'location', 'namespace', 'namespace_id')
 
     If specified, location should match the name of an external repo
 
@@ -3395,6 +3394,21 @@ def get_rpm(rpminfo, strict=False, multi=False):
     else:
         clauses.append("""rpminfo.name=%(name)s AND version=%(version)s
         AND release=%(release)s AND arch=%(arch)s""")
+
+    if 'namespace_id' in data:
+        # explicitly passed in via dict
+        if data['namespace_id'] is None:
+            clauses.append('rpminfo.namespace_id IS NULL')
+        else:
+            clauses.append('rpminfo.namespace_id = %(namespace_id)i')
+    elif 'namespace' in data:
+        # passed in via dict or :: prefix on nvr
+        if data['namespace'] is None or data['namespace'] == 'NULL':
+            clauses.append('rpminfo.namespace_id IS NULL')
+        else:
+            joins.append('namespace ON rpminfo.namespace_id = namespace.id')
+            clauses.append('namespace.name = %(namespace)s')
+
     retry = False
     if data.has_key('location'):
         data['external_repo_id'] = get_external_repo_id(data['location'], strict=True)
@@ -4683,7 +4697,7 @@ def import_build(srpm, rpms, brmap=None, task_id=None, build_id=None, logs=None)
                               task_id=task_id, build_id=build_id, build=binfo, logs=logs)
     return binfo
 
-def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False):
+def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False,namespace=0):
     """Import a single rpm into the database
 
     Designed to be called from import_build.
@@ -4697,6 +4711,10 @@ def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False):
                     'sourcepackage','arch','buildtime','sourcerpm'])
     if rpminfo['sourcepackage'] == 1:
         rpminfo['arch'] = "src"
+
+    nsinfo = lookup_name('namespace', namespace, strict=True)
+    rpminfo['namespace_id'] = nsinfo['id']
+    rpminfo['namespace'] = nsinfo['name']
 
     #sanity check basename
     basename = os.path.basename(fn)
@@ -4715,9 +4733,9 @@ def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False):
         else:
             #figure it out from sourcerpm string
             buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
+            buildinfo['namespace_id'] = nsinfo['id']
+            buildinfo['namespace'] = nsinfo['name']
             if buildinfo is None:
-                #XXX - handle case where package is not a source rpm
-                #      and we still need to create a new build
                 raise koji.GenericError, 'No matching build'
             state = koji.BUILD_STATES[buildinfo['state']]
             if state in ('FAILED', 'CANCELED', 'DELETED'):
@@ -4750,6 +4768,7 @@ def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False):
     data = rpminfo.copy()
     del data['sourcepackage']
     del data['sourcerpm']
+    del data['namespace']
     insert = InsertProcessor('rpminfo', data=data)
     insert.execute()
 
@@ -7809,7 +7828,7 @@ class RootExports(object):
             build = get_build(build_id, strict=True)
         new_image_build(build)
 
-    def importRPM(self, path, basename):
+    def importRPM(self, path, basename, namespace=0):
         """Import an RPM into the database.
 
         The file must be uploaded first.
@@ -7819,7 +7838,7 @@ class RootExports(object):
         fn = "%s/%s/%s" %(uploadpath,path,basename)
         if not os.path.exists(fn):
             raise koji.GenericError, "No such file: %s" % fn
-        rpminfo = import_rpm(fn)
+        rpminfo = import_rpm(fn, namespace=namespace)
         import_rpm_file(fn,rpminfo['build'],rpminfo)
         add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
         for tag in list_tags(build=rpminfo['build_id']):
