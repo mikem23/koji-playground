@@ -4297,10 +4297,7 @@ def change_build_volume(build, volume, strict=True):
 
     #Fourth, maintain a symlink if appropriate
     if volinfo['name'] and volinfo['name'] != 'DEFAULT':
-        base_vol = lookup_name('volume', 'DEFAULT', strict=True)
-        base_binfo = binfo.copy()
-        base_binfo['volume_id'] = base_vol['id']
-        base_binfo['volume_name'] = base_vol['name']
+        base_binfo = get_base_binfo(binfo)
         basedir = koji.pathinfo.build(base_binfo)
         if os.path.islink(basedir):
             os.unlink(basedir)
@@ -4308,6 +4305,15 @@ def change_build_volume(build, volume, strict=True):
         os.symlink(relpath, basedir)
 
     koji.plugin.run_callbacks('postBuildStateChange', attribute='volume_id', old=old_binfo['volume_id'], new=volinfo['id'], info=binfo)
+
+
+def get_base_binfo(binfo):
+    """Returns a copy of binfo with volume data mangled to default"""
+    base_vol = lookup_name('volume', 'DEFAULT', strict=True)
+    base_binfo = binfo.copy()
+    base_binfo['volume_id'] = base_vol['id']
+    base_binfo['volume_name'] = base_vol['name']
+    return base_binfo
 
 
 def add_namespace(name, strict=True):
@@ -4354,18 +4360,27 @@ def change_build_namespace(build, namespace, strict=True):
     context.session.assertPerm('admin')
     nsinfo = lookup_name('namespace', namespace, strict=True)
     binfo = get_build(build, strict=True)
-    changes = False
+    state = koji.BUILD_STATES[binfo['state']]
+    # TODO - acquire row lock
+    if state not in ['COMPLETE', 'DELETED']:
+        raise koji.GenericError, "Build %s is %s" % (binfo['nvr'], state)
     if binfo['namespace_id'] == nsinfo['id']:
         if strict:
             raise koji.GenericError, "Build %(nvr)s already in namespace %(namespace)s" % binfo
         else:
             #nothing to do
             return
-    state = koji.BUILD_STATES[binfo['state']]
-    if state not in ['COMPLETE', 'DELETED']:
-        raise koji.GenericError, "Build %s is %s" % (binfo['nvr'], state)
+    if state == 'COMPLETE':
+        # sanity check, and migrate to new layout if needed
+        check_build_dirs(binfo, fix=True)
+
+    # TODO check for conflicts
 
     # Update the db
+    old_binfo = binfo
+    binfo = binfo.copy()
+    binfo['namespace_id'] = nsinfo['id']
+    binfo['namespace'] = nsinfo['name']
     koji.plugin.run_callbacks('preBuildStateChange', attribute='namespace_id',
                 old=old_binfo['namespace_id'], new=nsinfo['id'], info=binfo)
     update = UpdateProcessor('build', clauses=['id=%(id)i'], values=binfo)
@@ -4375,10 +4390,113 @@ def change_build_namespace(build, namespace, strict=True):
     update.set(namespace_id=nsinfo['id'])
     update.execute()
 
-    # TODO - handle old-build-dir symlinks if one of the namespaces is the default
+    if state != 'COMPLETE':
+        return
+
+    # handle old-build-dir symlinks if one of the namespaces is the default
+    # note that we already sanity checked previous state above
+    if nsinfo['id'] == 0:
+        # changing *to* default namespace
+        # add oldbuild symlinks
+        oldbuild = koji.pathinfo.oldbuild(binfo)
+        newbuild = koji.pathinfo.newbuild(binfo)
+        relpath = koji.util.relpath(newbuild, os.path.dirname(oldbuild))
+        koji.ensuredir(os.path.dirname(oldbuild))
+        os.symlink(relpath, oldbuild)
+        if binfo['volume_id'] != 0:
+            base_binfo = get_base_binfo(binfo)
+            oldbasebuild = koji.pathinfo.oldbuild(base_binfo)
+            relpath = koji.util.relpath(newbuild, os.path.dirname(oldbasebuild))
+            koji.ensuredir(os.path.dirname(oldbasebuild))
+            os.symlink(relpath, oldbasebuild)
+    elif old_binfo['namespace_id'] == 0:
+        # changing *from* default namespace
+        # remove oldbuild symlinks
+        oldbuild = koji.pathinfo.oldbuild(binfo)
+        if os.path.islink(oldbuild):
+            os.unlink(oldbuild)
+        if binfo['volume_id'] != 0:
+            base_binfo = get_base_binfo(binfo)
+            oldbasebuild = koji.pathinfo.oldbuild(base_binfo)
+            if os.path.islink(oldbasebuild):
+                os.unlink(oldbasebuild)
 
     koji.plugin.run_callbacks('postBuildStateChange', attribute='namespace_id',
                 old=old_binfo['namespace_id'], new=nsinfo['id'], info=binfo)
+
+
+def check_build_dirs(binfo, fix=False):
+    """Check that a build's directories are arranged correctly
+
+    If fix is set to true, fix problems (if possible)
+    """
+    if binfo['namespace_id'] == 0:
+        # default namespace, build may still be in old location
+        # also, we maintain a symlink
+        oldbuild = koji.pathinfo.oldbuild(binfo)
+        newbuild = koji.pathinfo.newbuild(binfo)
+        if os.path.islink(oldbuild):
+            # old dir should be a link to new one
+            if os.path.islink(newbuild):
+                raise koji.GenericError, "Build directory is a symlink: %s" % newbuild
+            if not os.path.exists(newbuild):
+                raise koji.GenericError, "Build directory does not exist: %s" % newbuild
+            # TODO add more checks
+            # TODO volume symlinks for this case
+        else:
+            # build not migrated to to new layout yet
+            if not fix:
+                raise koji.GenericError, "Old build directory not migrated yet: %s" % oldbuild
+            if os.path.islink(newbuild) or os.path.exists(newbuild):
+                raise koji.GenericError, "Unable to migrate build dir. Path already exists: %s" \
+                            % newbuild
+            if binfo['volume_id'] != 0:
+                # check the volume symlinks
+                base_binfo = get_base_binfo(binfo)
+                oldbasebuild = koji.pathinfo.oldbuild(base_binfo)
+                newbasebuild = koji.pathinfo.newbuild(base_binfo)
+                if not os.path.islink(oldbasebuild) and os.path.exists(oldbasebuild):
+                    raise koji.GenericError, \
+                        "Unable to migrate build dir. Volume layout corrupted. Not a symlink: %s" \
+                            % oldbasebuild
+                if os.path.islink(newbasebuild) or os.path.exists(newbasebuild):
+                    raise koji.GenericError, \
+                        "Unable to migrate build dir. Path already exists: %s" \
+                                % newbasebuild
+            # migrate
+            relpath = koji.util.relpath(newbuild, os.path.dirname(oldbuild))
+            koji.ensuredir(os.path.dirname(newbuild))
+            os.rename(oldbuild, newbuild)
+            os.symlink(relpath, oldbuild)
+            if binfo['volume_id'] != 0:
+                #deal with volume symlinks
+                for basedir in oldbasebuild, newbasebuild:
+                    if os.path.islink(basedir):
+                        os.unlink(basedir)
+                    relpath = koji.util.relpath(newbuild, os.path.dirname(basedir))
+                    os.symlink(relpath, basedir)
+    else:
+        # non-default namespace case
+        # oldbuild is irrelevant (and may well belong link to a different build)
+        newbuild = koji.pathinfo.newbuild(binfo)
+        if os.path.islink(newbuild):
+            raise koji.GenericError, "Build directory is a symlink: %s" % newbuild
+        if not os.path.exists(newbuild):
+            raise koji.GenericError, "Build directory does not exist: %s" % newbuild
+        if binfo['volume_id'] != 0:
+            # check the volume symlinks
+            base_binfo = get_base_binfo(binfo)
+            newbasebuild = koji.pathinfo.newbuild(base_binfo)
+            if not os.path.islink(newbasebuild):
+                if os.path.exists(newbasebuild):
+                    raise koji.GenericError, "Unexpected cross-volume content: %s" \
+                                % newbasebuild
+                if not fix:
+                    raise koji.GenericError, "Volume symlink missing: %s" \
+                                % newbasebuild
+                # otherwise fix the link
+                relpath = koji.util.relpath(newbuild, os.path.dirname(newbasebuild))
+                os.symlink(relpath, newbasebuild)
 
 
 def new_build(data):

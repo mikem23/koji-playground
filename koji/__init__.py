@@ -1477,7 +1477,7 @@ class PathInfo(object):
         if 'namespace' not in build and 'namespace_id' not in build:
             # compat mode for older hub
             return self.oldbuild(build)
-        elif build.get('namespace_id') == 0 or build.get('namespace') = 'DEFAULT':
+        elif build.get('namespace_id') == 0 or build.get('namespace') == 'DEFAULT':
             # to ease migration we report the old path for the default namespace
             return self.oldbuild(build)
         else:
