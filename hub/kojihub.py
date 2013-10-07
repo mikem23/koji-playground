@@ -4446,6 +4446,17 @@ def check_build_dirs(binfo, fix=False):
                 raise koji.GenericError, "Build directory does not exist: %s" % newbuild
             # TODO add more checks
             # TODO volume symlinks for this case
+        elif not os.path.exists(oldbuild):
+            if not os.path.exists(newbuild):
+                raise koji.GenericError, "Build directory is missing: %s" % newbuild
+            if os.path.islink(newbuild):
+                raise koji.GenericError, "Build directory is symlink: %s" % newbuild
+            if not fix:
+                raise koji.GenericError, "Old build symlink is missing: %s" % oldbuild
+            #otherwise we can fix the link
+            relpath = koji.util.relpath(newbuild, os.path.dirname(oldbuild))
+            koji.ensuredir(os.path.dirname(oldbuild))
+            os.symlink(relpath, oldbuild)
         else:
             # build not migrated to to new layout yet
             if not fix:
