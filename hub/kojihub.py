@@ -1178,7 +1178,7 @@ def readTaggedBuilds(tag,event=None,inherit=False,latest=False,package=None,owne
     JOIN events ON events.id = build.create_event
     JOIN package ON package.id = build.pkg_id
     JOIN volume ON volume.id = build.volume_id
-    JOIN namespace ON namespace.id = build.namespace_id
+    LEFT OUTER JOIN namespace ON namespace.id = build.namespace_id
     WHERE %s AND tag_id=%%(tagid)s
         AND build.state=%%(st_complete)i
     """ % (', '.join([pair[0] for pair in fields]), type_join, eventCondition(event, 'tag_listing'))
@@ -2102,7 +2102,7 @@ def maven_tag_archives(tag_id, event_id=None, inherit=True):
     joins = ['tag ON tag_listing.tag_id = tag.id',
              'build ON tag_listing.build_id = build.id',
              'volume ON build.volume_id = volume.id',
-             'namespace ON build.namespace_id = namespace.id',
+             'LEFT OUTER JOIN namespace ON build.namespace_id = namespace.id',
              'package ON build.pkg_id = package.id',
              'archiveinfo ON build.id = archiveinfo.build_id',
              'maven_archives ON archiveinfo.id = maven_archives.archive_id']
@@ -3269,7 +3269,7 @@ def get_build(buildInfo, strict=False):
     JOIN events ON build.create_event = events.id
     JOIN package on build.pkg_id = package.id
     JOIN volume on build.volume_id = volume.id
-    JOIN namespace on build.namespace_id = namespace.id
+    LEFT OUTER JOIN namespace on build.namespace_id = namespace.id
     JOIN users on build.owner = users.id
     WHERE build.id = %%(buildID)i""" % ', '.join([pair[0] for pair in fields])
 
@@ -8230,7 +8230,7 @@ class RootExports(object):
         joins = ['events ON build.create_event = events.id',
                  'package ON build.pkg_id = package.id',
                  'volume ON build.volume_id = volume.id',
-                 'namespace ON build.namespace_id = namespace.id',
+                 'LEFT OUTER JOIN namespace ON build.namespace_id = namespace.id',
                  'users ON build.owner = users.id']
         clauses = []
         if packageID != None:
