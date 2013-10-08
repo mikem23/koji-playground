@@ -23,6 +23,15 @@
     <tr>
       <th>Epoch</th><td>$build.epoch</td>
     </tr>
+    #if 'namespace' in $build
+    <tr>
+      #if $build.namespace is None
+      <th>Namespace</th><td>NULL</td>
+      #else
+      <th>Namespace</th><td>$build.namespace</td>
+      #end if
+    </tr>
+    #end if
     #if $mavenbuild
     <tr>
       <th>Maven&nbsp;groupId</th><td>$mavenbuild.group_id</td>
