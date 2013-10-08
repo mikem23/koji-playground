@@ -1634,7 +1634,7 @@ def handle_import(options, session, args):
                 break
         else:
             #no srpm included, check for build
-            bspec = parse_NVR(nvr)
+            bspec = koji.parse_NVR(nvr)
             bspec['namespace_id'] = nsinfo['id']
             binfo = session.getBuild(bspec)
             if not binfo:
@@ -1672,7 +1672,7 @@ def handle_import(options, session, args):
         print _("importing %s...") % path,
         sys.stdout.flush()
         try:
-            session.importRPM(serverdir, os.path.basename(path))
+            session.importRPM(serverdir, os.path.basename(path), namespace=nsinfo['id'])
         except koji.GenericError, e:
             print _("\nError importing: %s" % str(e).splitlines()[-1])
             sys.stdout.flush()
