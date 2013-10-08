@@ -4547,6 +4547,7 @@ def new_build(data):
     for f in ('version','release','epoch'):
         if not data.has_key(f):
             raise koji.GenericError, "No %s value for build" % f
+
     #provide a few default values
     data.setdefault('state',koji.BUILD_STATES['COMPLETE'])
     data.setdefault('completion_time', 'NOW')
@@ -4554,36 +4555,14 @@ def new_build(data):
     data.setdefault('task_id',None)
     data.setdefault('volume_id', 0)
     data.setdefault('namespace_id', 0)
-    #check for existing build
-    # TODO - table lock?
-    q="""SELECT id,state,task_id FROM build
-    WHERE pkg_id=%(pkg_id)d AND version=%(version)s AND release=%(release)s
-    FOR UPDATE"""
-    row = _fetchSingle(q, data)
-    if row:
-        id, state, task_id = row
-        data['id'] = id
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=state, new=data['state'], info=data)
-        st_desc = koji.BUILD_STATES[state]
-        if st_desc == 'BUILDING':
-            # check to see if this is the controlling task
-            if data['state'] == state and data.get('task_id','') == task_id:
-                #the controlling task must have restarted (and called initBuild again)
-                return id
-            raise koji.GenericError, "Build already in progress (task %d)" % task_id
-            # TODO? - reclaim 'stale' builds (state=BUILDING and task_id inactive)
-        if st_desc in ('FAILED','CANCELED'):
-            #should be ok to replace
-            update = """UPDATE build SET state=%(state)i,task_id=%(task_id)s,
-            owner=%(owner)s,completion_time=%(completion_time)s,create_event=get_event()
-            WHERE id = %(id)i"""
-            _dml(update, data)
-            koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=state, new=data['state'], info=data)
-            return id
-        raise koji.GenericError, "Build already exists (id=%d, state=%s): %r" \
-            % (id, st_desc, data)
-    else:
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=None, new=data['state'], info=data)
+
+    # check for conflicts (and possible reuse)
+    previous = check_existing_build(data)
+    if previous:
+        return previous
+
+    koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=None, new=data['state'], info=data)
+
     #insert the new data
     insert_data = dslice(data, ['pkg_id', 'version', 'release', 'epoch', 'state', 'volume_id',
                          'namespace_id', 'task_id', 'owner', 'completion_time'])
@@ -4593,6 +4572,43 @@ def new_build(data):
     koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=None, new=data['state'], info=data)
     #return build_id
     return data['id']
+
+
+def check_existing_build(data):
+    #check for existing build
+    if data['namespace_id'] is None:
+        # null namespace allows arbitrary overlap
+        return None
+    clauses=['pkg_id=%(pkg_id)i', 'version=%(version)s', 'release=%(release)s',
+                'namespace_id=%(namespace_id)i']
+    query = QueryProcessor(tables=['build'], columns=['id', 'state', 'task_id'],
+                           clauses=clauses, values=data,
+                           opts={'asList': True, 'rowlock': True})
+    row = query.executeOne()
+    if not row:
+        return None
+    id, state, task_id = row
+    data['id'] = id
+    koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=state, new=data['state'], info=data)
+    st_desc = koji.BUILD_STATES[state]
+    if st_desc == 'BUILDING':
+        # check to see if this is the controlling task
+        if data['state'] == state and data.get('task_id','') == task_id:
+            #the controlling task must have restarted (and called initBuild again)
+            return id
+        raise koji.GenericError, "Build already in progress (task %d)" % task_id
+        # TODO? - reclaim 'stale' builds (state=BUILDING and task_id inactive)
+    if st_desc in ('FAILED','CANCELED'):
+        #should be ok to replace
+        update = """UPDATE build SET state=%(state)i,task_id=%(task_id)s,
+        owner=%(owner)s,completion_time=%(completion_time)s,create_event=get_event()
+        WHERE id = %(id)i"""
+        _dml(update, data)
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=state, new=data['state'], info=data)
+        return id
+    raise koji.GenericError, "Build already exists (id=%d, state=%s): %r" \
+        % (id, st_desc, data)
+
 
 def check_noarch_rpms(basepath, rpms):
     """
@@ -4732,9 +4748,9 @@ def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False,namespace=0):
                 buildinfo = get_build(build_id, strict=True)
         else:
             #figure it out from sourcerpm string
-            buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
-            buildinfo['namespace_id'] = nsinfo['id']
-            buildinfo['namespace'] = nsinfo['name']
+            bspec = koji.parse_NVRA(rpminfo['sourcerpm'])
+            bspec['namespace_id'] = nsinfo['id']
+            buildinfo = get_build(bspec)
             if buildinfo is None:
                 raise koji.GenericError, 'No matching build'
             state = koji.BUILD_STATES[buildinfo['state']]
