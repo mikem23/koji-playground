@@ -322,6 +322,14 @@ class ParameterError(GenericError):
     """Raised when an rpc call receives incorrect arguments"""
     faultCode = 1019
 
+class NoMatchError(GenericError):
+    """Raised when a given value does not match known data, but should"""
+    faultCode = 1020
+
+class MultipleValueError(GenericError):
+    """Raised when a query expects a single value and gets more than one"""
+    faultCode = 1021
+
 
 class MultiCallInProgress(object):
     """
