@@ -6082,10 +6082,11 @@ def reset_build(build):
     """
     # Only an admin may do this
     context.session.assertPerm('admin')
-    binfo = get_build(build, strict=True)
-    if not binfo:
-        #nothing to do
+    try:
+        binfo = get_build(build, strict=True)
+    except koji.NoMatchError:
         return
+        #XXX - this is here for compatibility, but we probably should error here
     koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=koji.BUILD_STATES['CANCELED'], info=binfo)
     q = """SELECT id FROM rpminfo WHERE build_id=%(id)i"""
     ids = _fetchMulti(q, binfo)
@@ -9262,18 +9263,15 @@ class RootExports(object):
 
     def setBuildOwner(self, build, user):
         context.session.assertPerm('admin')
-        buildinfo = get_build(build)
-        if not buildinfo:
-            raise koji.GenericError, 'build does not exist: %s' % build
+        buildinfo = get_build(build, strict=True)
         userinfo = get_user(user)
         if not userinfo:
             raise koji.GenericError, 'user does not exist: %s' % user
-        userid = userinfo['id']
-        buildid = buildinfo['id']
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userid, info=buildinfo)
-        q = """UPDATE build SET owner=%(userid)i WHERE id=%(buildid)i"""
-        _dml(q,locals())
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userid, info=buildinfo)
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userinfo['id'], info=buildinfo)
+        update = UpdateProcessor('build', clauses=['id=%(id)i'], values=buildinfo)
+        update.set(owner=userinfo['id'])
+        update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userinfo['id'], info=buildinfo)
 
     def setBuildTimestamp(self, build, ts):
         """Set the completion time for a build
@@ -9282,25 +9280,24 @@ class RootExports(object):
         ts should be # of seconds since epoch or optionally an
             xmlrpc DateTime value"""
         context.session.assertPerm('admin')
-        buildinfo = get_build(build)
-        if not buildinfo:
-            raise koji.GenericError, 'build does not exist: %s' % build
-        elif isinstance(ts, xmlrpclib.DateTime):
+        buildinfo = get_build(build, strict=True)
+        if isinstance(ts, xmlrpclib.DateTime):
             #not recommended
             #the xmlrpclib.DateTime class is almost useless
             try:
-                ts = time.mktime(time.strptime(str(ts),'%Y%m%dT%H:%M:%S'))
+                new_ts = time.mktime(time.strptime(str(ts),'%Y%m%dT%H:%M:%S'))
             except ValueError:
                 raise koji.GenericError, "Invalid time: %s" % ts
-        elif not isinstance(ts, (int, long, float)):
+        elif isinstance(ts, (int, long, float)):
+            new_ts = ts
+        else:
             raise koji.GenericError, "Invalid type for timestamp"
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=ts, info=buildinfo)
-        buildid = buildinfo['id']
-        q = """UPDATE build
-        SET completion_time=TIMESTAMP 'epoch' AT TIME ZONE 'utc' + '%(ts)f seconds'::interval
-        WHERE id=%%(buildid)i""" % locals()
-        _dml(q,locals())
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=ts, info=buildinfo)
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=new_ts, info=buildinfo)
+        update = UpdateProcessor('build', clauses=['id=%(id)i'], values=buildinfo)
+        update.set(owner=userinfo['id'])
+        update.rawset(completion_time="TIMESTAMP 'epoch' AT TIME ZONE 'utc' + '%f seconds'::interval" % new_ts)
+        update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=new_ts, info=buildinfo)
 
     def count(self, methodName, *args, **kw):
         """Execute the XML-RPC method with the given name and count the results.
