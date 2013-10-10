@@ -9316,7 +9316,6 @@ class RootExports(object):
             raise koji.GenericError, "Invalid type for timestamp"
         koji.plugin.run_callbacks('preBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=new_ts, info=buildinfo)
         update = UpdateProcessor('build', clauses=['id=%(id)i'], values=buildinfo)
-        update.set(owner=userinfo['id'])
         update.rawset(completion_time="TIMESTAMP 'epoch' AT TIME ZONE 'utc' + '%f seconds'::interval" % new_ts)
         update.execute()
         koji.plugin.run_callbacks('postBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=new_ts, info=buildinfo)
