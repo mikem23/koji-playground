@@ -28,6 +28,8 @@ ALTER TABLE rpminfo ADD COLUMN namespace_id INTEGER DEFAULT 0;
 ALTER TABLE rpminfo DROP CONSTRAINT rpminfo_unique_nvra;
 ALTER TABLE rpminfo ADD CONSTRAINT rpminfo_namespace_sanity UNIQUE (namespace_id,name,version,release,arch,external_repo_id);
 --      note that namespace_id can be null, which allows arbitrary nvr overlap
+ALTER TABLE rpminfo ADD CONSTRAINT external_no_namespace CHECK (external_repo_id = 0 OR namespace_id=0);
+ALTER TABLE rpminfo ADD CONSTRAINT external_no_build CHECK (external_repo_id = 0 OR build_id IS NULL);
 
 -- now we need to set all the builds and rpms to default namespace
 UPDATE build set namespace_id=0;
