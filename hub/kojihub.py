@@ -1455,7 +1455,7 @@ def _tag_build(tag,build,user_id=None,force=False):
     clauses = ('tag_id=%(tag_id)i', 'build_id=%(build_id)i')
     query = QueryProcessor(columns=['build_id'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     #note: tag_listing is unique on (build_id, tag_id, active)
     if query.executeOne():
         #already tagged
@@ -1597,7 +1597,7 @@ def grplist_unblock(taginfo,grpinfo):
     clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s')
     query = QueryProcessor(columns=['blocked'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     blocked = query.singleValue(strict=False)
     if not blocked:
         raise koji.GenericError, "group %s is NOT blocked in tag %s" % (group['name'],tag['name'])
@@ -1700,7 +1700,7 @@ def grp_pkg_unblock(taginfo,grpinfo,pkg_name):
     clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s', 'package = %(pkg_name)s')
     query = QueryProcessor(columns=['blocked'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     blocked = query.singleValue(strict=False)
     if not blocked:
         raise koji.GenericError, "package %s is NOT blocked in group %s, tag %s" \
@@ -1807,7 +1807,7 @@ def grp_req_unblock(taginfo,grpinfo,reqinfo):
     clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s', 'req_id = %(req_id)s')
     query = QueryProcessor(columns=['blocked'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     blocked = query.singleValue(strict=False)
     if not blocked:
         raise koji.GenericError, "group req %s is NOT blocked in group %s, tag %s" \
@@ -3270,6 +3270,14 @@ def get_build(buildInfo, strict=False):
     If there is no build matching the buildInfo given, and strict is specified,
     raise an error.  Otherwise return None.
     """
+    return _get_build(buildInfo, strict=strict)
+
+
+def _get_build(buildInfo, strict=False, lock=False):
+    """As get_build, but an additional option
+
+    If lock is True, then acquire a row lock on the build
+    """
     buildID = find_build_id(buildInfo, strict=strict)
     if buildID == None:
         return None
@@ -3284,18 +3292,18 @@ def get_build(buildInfo, strict=False):
               ('EXTRACT(EPOCH FROM events.time)','creation_ts'),
               ('EXTRACT(EPOCH FROM build.completion_time)','completion_ts'),
               ('users.id', 'owner_id'), ('users.name', 'owner_name'))
-    query = """SELECT %s
-    FROM build
-    JOIN events ON build.create_event = events.id
-    JOIN package on build.pkg_id = package.id
-    JOIN volume on build.volume_id = volume.id
-    LEFT OUTER JOIN namespace on build.namespace_id = namespace.id
-    JOIN users on build.owner = users.id
-    WHERE build.id = %%(buildID)i""" % ', '.join([pair[0] for pair in fields])
-
-    c = context.cnx.cursor()
-    c.execute(query, locals())
-    result = c.fetchone()
+    # build query
+    q = QueryProcessor(tables=['build'], values = locals())
+    q.columns, q.aliases = zip(*fields)
+    q.joins = ['JOIN events ON build.create_event = events.id',
+               'JOIN package on build.pkg_id = package.id',
+               'JOIN volume on build.volume_id = volume.id',
+               'LEFT OUTER JOIN namespace on build.namespace_id = namespace.id',
+               'JOIN users on build.owner = users.id']
+    q.clauses = ['build.id = %(buildID)i']
+    if lock:
+        q.rowlock = ['build']
+    result = q.executeOne()
 
     if not result:
         if strict:
@@ -3303,8 +3311,8 @@ def get_build(buildInfo, strict=False):
         else:
             return None
     else:
-        ret = dict(zip([pair[1] for pair in fields], result))
-        return ret
+        return result
+
 
 def get_next_release(build_info):
     """find the last successful or deleted build of this N-V"""
@@ -4382,9 +4390,8 @@ def change_build_namespace(build, namespace, strict=True):
         nsinfo = {'id': None, 'name':None}
     else:
         nsinfo = lookup_name('namespace', namespace, strict=True)
-    binfo = get_build(build, strict=True)
+    binfo = _get_build(build, strict=True, lock=True)
     state = koji.BUILD_STATES[binfo['state']]
-    # TODO - acquire row lock
     if state not in ['COMPLETE', 'DELETED']:
         raise koji.GenericError, "Build %s is %s" % (binfo['nvr'], state)
     if binfo['namespace_id'] == nsinfo['id']:
@@ -4582,8 +4589,8 @@ def check_existing_build(data):
     clauses=['pkg_id=%(pkg_id)i', 'version=%(version)s', 'release=%(release)s',
                 'namespace_id=%(namespace_id)i']
     query = QueryProcessor(tables=['build'], columns=['id', 'state', 'task_id'],
-                           clauses=clauses, values=data,
-                           opts={'asList': True, 'rowlock': True})
+                           clauses=clauses, values=data, rowlock=True,
+                           opts={'asList': True})
     row = query.executeOne()
     if not row:
         return None
@@ -5997,7 +6004,7 @@ def delete_build(build, strict=True, min_ref_age=604800):
     Returns True if successful, False otherwise
     """
     context.session.assertPerm('admin')
-    binfo = get_build(build, strict=True)
+    binfo = _get_build(build, strict=True, lock=True)
     refs = build_references(binfo['id'], limit=10)
     if refs['tags']:
         if strict:
@@ -6083,7 +6090,7 @@ def reset_build(build):
     # Only an admin may do this
     context.session.assertPerm('admin')
     try:
-        binfo = get_build(build, strict=True)
+        binfo = _get_build(build, strict=True, lock=True)
     except koji.NoMatchError:
         return
         #XXX - this is here for compatibility, but we probably should error here
@@ -6144,7 +6151,7 @@ def cancel_build(build_id, cancel_task=True):
     """
     st_canceled = koji.BUILD_STATES['CANCELED']
     st_building = koji.BUILD_STATES['BUILDING']
-    build = get_build(build_id, strict=True)
+    build = _get_build(build_id, strict=True, lock=True)
     if build['state'] != st_building:
         return False
     koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build['state'], new=st_canceled, info=build)
@@ -6307,7 +6314,7 @@ def add_group_member(group, user, strict=True):
     clauses = ('user_id = %(user_id)i', 'group_id = %(group_id)s')
     query = QueryProcessor(columns=['user_id'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=data, opts={'rowlock':True})
+                           values=data, rowlock=True)
     row = query.executeOne()
     if row:
         if not strict:
@@ -6518,6 +6525,10 @@ class QueryProcessor(object):
     - clauses: a list of where clauses in the form 'table1.col1 OPER table2.col2-or-variable';
                each clause will be surrounded by parentheses and all will be AND'ed together
     - values: the map that will be used to replace any substitution expressions in the query
+    - rowlock: if True, use "FOR UPDATE" to lock the queried rows. If a list, then treated
+               as a list of tables to lock (FOR UPDATE OF ...)
+    - share: if true, then the row lock is a shared one (FOR SHARE ...)
+    - nowait: if true, then the row lock is nonblocking
     - opts: a map of query options; currently supported options are:
         countOnly: if True, return an integer indicating how many results would have been
                    returned, rather than the actual query results
@@ -6526,10 +6537,10 @@ class QueryProcessor(object):
         limit: an integer to use in the 'LIMIT' clause
         asList: if True, return results as a list of lists, where each list contains the
                 column values in query order, rather than the usual list of maps
-        rowlock: if True, use "FOR UPDATE" to lock the queried rows
     """
     def __init__(self, columns=None, aliases=None, tables=None,
-                 joins=None, clauses=None, values=None, opts=None):
+                 joins=None, clauses=None, values=None,
+                 rowlock=None, share=None, nowait=None, opts=None):
         self.columns = columns
         self.aliases = aliases
         if columns and aliases:
@@ -6545,6 +6556,9 @@ class QueryProcessor(object):
             self.values = values
         else:
             self.values = {}
+        self.rowlock = rowlock
+        self.share = share
+        self.nowait = nowait
         if opts:
             self.opts = opts
         else:
@@ -6589,8 +6603,16 @@ SELECT %(col_str)s
         if self.opts.get('countOnly') and \
            (self.opts.get('offset') or self.opts.get('limit')):
             query = 'SELECT count(*)\nFROM (' + query + ') numrows'
-        if self.opts.get('rowlock'):
-            query += '\n FOR UPDATE'
+        if self.rowlock:
+            if self.share:
+                query += '\n FOR SHARE'
+            else:
+                query += '\n FOR UPDATE'
+            if not isinstance(self.rowlock, bool):
+                # treat as list of table names
+                query += ' OF ' + ', '.join(self.rowlock)
+            if self.nowait:
+                query += ' NOWAIT'
         return query
 
     def __repr__(self):
