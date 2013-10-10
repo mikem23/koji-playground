@@ -2707,6 +2707,12 @@ def lookup_build_target(info,strict=False,create=False):
     """Get the id,name for build target"""
     return lookup_name('build_target',info,strict,create)
 
+def lookup_namespace(info, strict=False, create=False):
+    if info is None or info == 'NULL':
+        #None represents a valid namespace, but is not in the table
+        return {'id': None, 'name': 'NULL'}
+    return lookup_name('namespace', info, strict, create)
+
 def create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_support=False, maven_include_all=False):
     """Create a new tag"""
 
@@ -4362,7 +4368,7 @@ def add_namespace(name, strict=True):
     """Add a new build namespace in the database"""
     context.session.assertPerm('admin')
     if strict:
-        info = lookup_name('namespace', name, strict=False)
+        info = lookup_namespace(name, strict=False)
         if info:
             raise koji.GenericError, 'namespace %s already exists' % name
     if not isinstance(name, basestring):
@@ -4371,13 +4377,13 @@ def add_namespace(name, strict=True):
         raise koji.GenericError, 'The empty string may not be used as a namespace'
     if name.find('::') != -1:
         raise koji.GenericError, 'Namespaces may not contain ::'
-    info = lookup_name('namespace', name, strict=False, create=True)
+    info = lookup_namespace(name, strict=False, create=True)
     return info
 
 def remove_namespace(namespace):
     """Remove unused build namespace from the database"""
     context.session.assertPerm('admin')
-    info = lookup_name('namespace', namespace, strict=True)
+    info = lookup_namespace(namespace, strict=True)
     query = QueryProcessor(tables=['build'], clauses=['namespace_id=%(id)i'],
                     values=info, columns=['id'], opts={'limit':1})
     if query.execute():
@@ -4403,7 +4409,7 @@ def change_build_namespace(build, namespace, strict=True):
     if namespace is None:
         nsinfo = {'id': None, 'name':None}
     else:
-        nsinfo = lookup_name('namespace', namespace, strict=True)
+        nsinfo = lookup_namespace(namespace, strict=True)
     binfo = _get_build(build, strict=True, lock=True)
     state = koji.BUILD_STATES[binfo['state']]
     if state not in ['COMPLETE', 'DELETED']:
@@ -4749,7 +4755,7 @@ def import_rpm(fn,buildinfo=None,brootid=None,wrapper=False,namespace=0):
     if rpminfo['sourcepackage'] == 1:
         rpminfo['arch'] = "src"
 
-    nsinfo = lookup_name('namespace', namespace, strict=True)
+    nsinfo = lookup_namespace(namespace, strict=True)
     rpminfo['namespace_id'] = nsinfo['id']
     rpminfo['namespace'] = nsinfo['name']
 
@@ -6863,7 +6869,7 @@ class NamespaceTest(koji.policy.MatchTest):
         #we need to find the namespace from the base data
         info = None
         if 'namespace' in data:
-            info = lookup_name('namespace', data['namespace'], strict=False)
+            info = lookup_namespace(data['namespace'], strict=False)
         elif 'build' in data:
             build = get_build(data['build'])
             info = {'id': build['namespace_id'], 'name': build['namespace']}
@@ -7861,11 +7867,11 @@ class RootExports(object):
     listNamespaces = staticmethod(list_namespaces)
     changeBuildNamespace = staticmethod(change_build_namespace)
     def getNamespace(self, namespace, strict=False):
-        return lookup_name('namespace', namespace, strict=strict)
+        return lookup_namespace(namespace, strict=strict)
 
     def createEmptyBuild(self, name, version, release, epoch, owner=None, namespace=0):
         context.session.assertPerm('admin')
-        nsinfo = lookup_name('namespace', namespace, strict=True)
+        nsinfo = lookup_namespace(namespace, strict=True)
         data = { 'name' : name, 'version' : version, 'release' : release,
                  'epoch' : epoch, 'namespace_id' : nsinfo['id'] }
         if owner is not None:
