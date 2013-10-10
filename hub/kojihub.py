@@ -7817,10 +7817,11 @@ class RootExports(object):
     def getNamespace(self, namespace, strict=False):
         return lookup_name('namespace', namespace, strict=strict)
 
-    def createEmptyBuild(self, name, version, release, epoch, owner=None):
+    def createEmptyBuild(self, name, version, release, epoch, owner=None, namespace=0):
         context.session.assertPerm('admin')
+        nsinfo = lookup_name('namespace', namespace, strict=True)
         data = { 'name' : name, 'version' : version, 'release' : release,
-                 'epoch' : epoch }
+                 'epoch' : epoch, 'namespace_id' : nsinfo['id'] }
         if owner is not None:
             data['owner'] = owner
         return new_build(data)
@@ -7836,7 +7837,7 @@ class RootExports(object):
             raise koji.GenericError, "Maven support not enabled"
         build = get_build(build_info)
         if not build:
-            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch')))
+            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch', 'namespace_id')))
             build = get_build(build_id, strict=True)
         new_maven_build(build, maven_info)
 
@@ -7851,7 +7852,7 @@ class RootExports(object):
             raise koji.GenericError, "Windows support not enabled"
         build = get_build(build_info)
         if not build:
-            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch')))
+            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch', 'namespace_id')))
             build = get_build(build_id, strict=True)
         new_win_build(build, win_info)
 
@@ -7863,7 +7864,7 @@ class RootExports(object):
         context.session.assertPerm('image-import')
         build = get_build(build_info)
         if not build:
-            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch')))
+            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch', 'namespace_id')))
             build = get_build(build_id, strict=True)
         new_image_build(build)
 
