@@ -630,6 +630,8 @@ CREATE TABLE rpminfo (
 	payloadhash TEXT NOT NULL,
 	size BIGINT NOT NULL,
 	buildtime BIGINT NOT NULL,
+        CONSTRAINT external_no_namespace CHECK (external_repo_id = 0 OR namespace_id=0),
+        CONSTRAINT external_no_build CHECK (external_repo_id = 0 OR build_id IS NULL),
 	CONSTRAINT rpminfo_unique_nvra UNIQUE (namespace_id,name,version,release,arch,external_repo_id)
 --      note that namespace can be null, which allows arbitrary nvra overlap
 ) WITHOUT OIDS;
