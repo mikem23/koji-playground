@@ -333,6 +333,25 @@ CREATE TABLE tag_config (
 ) WITHOUT OIDS;
 
 
+-- extra tag config data
+-- changes to this data should not require repository regeneration
+CREATE TABLE tag_extra_config (
+        tag_id INTEGER NOT NULL REFERENCES tag(id),
+        namespace_id INTEGER REFERENCES namespace(id) DEFAULT 0,
+-- versioned - see desc above
+        create_event INTEGER NOT NULL REFERENCES events(id) DEFAULT get_event(),
+        revoke_event INTEGER REFERENCES events(id),
+        creator_id INTEGER NOT NULL REFERENCES users(id),
+        revoker_id INTEGER REFERENCES users(id),
+        active BOOLEAN DEFAULT 'true' CHECK (active),
+        CONSTRAINT active_revoke_sane CHECK (
+                (active IS NULL AND revoke_event IS NOT NULL AND revoker_id IS NOT NULL)
+                OR (active IS NOT NULL AND revoke_event IS NULL AND revoker_id IS NULL)),
+        PRIMARY KEY (create_event, tag_id),
+        UNIQUE (tag_id,active)
+) WITHOUT OIDS;
+
+
 -- the tag_updates table provides a mechanism to indicate changes relevant to tag
 -- that are not reflected in a versioned table. For example: builds changing volumes,
 -- changes to external repo content, additional rpms imported to an existing build
