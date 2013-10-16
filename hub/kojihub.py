@@ -1057,7 +1057,7 @@ def readPackageList(tagID=None, userID=None, pkgID=None, event=None, inherit=Fal
                 packages[pkgid] = p
     return packages
 
-def list_tags(build=None, package=None, queryOpts=None):
+def list_tags(build=None, package=None, queryOpts=None, with_extra=False):
     """List tags.  If build is specified, only return tags associated with the
     given build.  If package is specified, only return tags associated with the
     specified package.  If neither is specified, return all tags.  Build can be
@@ -1076,6 +1076,10 @@ def list_tags(build=None, package=None, queryOpts=None):
       - owner_name
       - blocked
       - extra_arches
+
+    If with_extra is True, then the following fields will also be included
+      - namespace_id
+      - namespace
     """
     if build is not None and package is not None:
         raise koji.GenericError, 'only one of build and package may be specified'
@@ -1083,12 +1087,14 @@ def list_tags(build=None, package=None, queryOpts=None):
     tables = ['tag_config']
     joins = ['tag ON tag.id = tag_config.tag_id',
              'LEFT OUTER JOIN permissions ON tag_config.perm_id = permissions.id']
-    fields = ['tag.id', 'tag.name', 'tag_config.perm_id', 'permissions.name',
-              'tag_config.arches', 'tag_config.locked', 'tag_config.maven_support',
-              'tag_config.maven_include_all']
-    aliases = ['id', 'name', 'perm_id', 'perm',
-               'arches', 'locked', 'maven_support',
-               'maven_include_all']
+    fields = [('tag.id', 'id'),
+              ('tag.name', 'name'),
+              ('tag_config.perm_id', 'perm_id'),
+              ('permissions.name', 'perm'),
+              ('tag_config.arches', 'arches'),
+              ('tag_config.locked', 'locked'),
+              ('tag_config.maven_support', 'maven_support'),
+              ('tag_config.maven_include_all', 'maven_include_all')]
     clauses = ['tag_config.active = true']
 
     if build is not None:
@@ -1104,14 +1110,23 @@ def list_tags(build=None, package=None, queryOpts=None):
         packageinfo = lookup_package(package)
         if not packageinfo:
             raise koji.GenericError, 'invalid package: %s' % package
-        fields.extend(['users.id', 'users.name', 'tag_packages.blocked', 'tag_packages.extra_arches'])
-        aliases.extend(['owner_id', 'owner_name', 'blocked', 'extra_arches'])
+        fields.extend([('users.id', 'owner_id'),
+                       ('users.name', 'owner_name'),
+                       ('tag_packages.blocked', 'blocked'),
+                       ('tag_packages.extra_arches', 'extra_arches')])
         joins.append('tag_packages ON tag.id = tag_packages.tag_id')
         clauses.append('tag_packages.active = true')
         clauses.append('tag_packages.package_id = %(packageID)i')
         joins.append('users ON tag_packages.owner = users.id')
         packageID = packageinfo['id']
+    if with_extra:
+        fields.extend([('tag_extra_config.namespace_id', 'namespace_id'),
+                       ('namespace.name', 'namespace')])
+        joins.append('LEFT OUTER JOIN tag_extra_config ON tag_extra_config = tag_config.tag_id')
+        joins.append('LEFT OUTER JOIN namespace ON namespace.id = tag_extra_config.namespace_id')
+        clause.append('tag_extra_config.active = true')
 
+    fields, aliases = zip(*fields)
     query = QueryProcessor(columns=fields, aliases=aliases, tables=tables,
                            joins=joins, clauses=clauses, values=locals(),
                            opts=queryOpts)
@@ -2465,6 +2480,7 @@ def tag_changed_since_event(event,taglist):
         'tag_listing',
         'tag_inheritance',
         'tag_config',
+        # NOT tag_extra_config
         'tag_packages',
         'tag_external_repos',
         'group_package_listing',
@@ -2733,7 +2749,9 @@ def lookup_namespace(info, strict=False, create=False):
         return {'id': None, 'name': 'NULL'}
     return lookup_name('namespace', info, strict, create)
 
-def create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_support=False, maven_include_all=False):
+
+def create_tag(name, parent=None, arches=None, perm=None, locked=False,
+               maven_support=False, maven_include_all=False, namespace=-1):
     """Create a new tag"""
 
     context.session.assertPerm('admin')
@@ -2753,12 +2771,24 @@ def create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_su
     else:
         parent_id = None
 
+    # figure out namespace
+    if namespace == -1:
+        # use parent's namespace
+        namespace_id = parent_tag['namespace_id']
+    else:
+        namespace_id = lookup_namespace(namespace, strict=True)['id']
+
     #there may already be an id for a deleted tag, this will reuse it
     tag_id = get_tag_id(name,create=True)
 
     insert = InsertProcessor('tag_config')
     insert.set(tag_id=tag_id, arches=arches, perm_id=perm, locked=locked)
     insert.set(maven_support=maven_support, maven_include_all=maven_include_all)
+    insert.make_create()
+    insert.execute()
+
+    insert = InsertProcessor('tag_extra_config')
+    insert.set(tag_id=tag_id, namespace_id=namespace_id)
     insert.make_create()
     insert.execute()
 
@@ -2805,7 +2835,9 @@ def get_tag(tagInfo, strict=False, event=None):
               'tag_config.arches': 'arches',
               'tag_config.locked': 'locked',
               'tag_config.maven_support': 'maven_support',
-              'tag_config.maven_include_all': 'maven_include_all'
+              'tag_config.maven_include_all': 'maven_include_all',
+              'tag_extra_config.namespace_id': 'namespace_id',
+              'namespace.name': 'namespace',
              }
     clauses = [eventCondition(event, table='tag_config')]
     if isinstance(tagInfo, int):
@@ -2820,11 +2852,27 @@ def get_tag(tagInfo, strict=False, event=None):
     query = QueryProcessor(columns=fields, aliases=aliases, tables=tables,
                            joins=joins, clauses=clauses, values=data)
     result = query.executeOne()
+
     if not result:
         if strict:
             raise koji.GenericError, "Invalid tagInfo: %r" % tagInfo
         return None
+
+    #also get extra data
+    fields = [('tag_extra_config.namespace_id', 'namespace_id'),
+              ('namespace.name', 'namespace')]
+    fields, aliases = zip(*fields)
+    query = QueryProcessor(tables=['tag_extra_config'], columns=fields, aliases=aliases,
+                           values=result)
+    query.joins = ['LEFT OUTER JOIN namespace ON namespace.id = tag_extra_config.namespace_id']
+    query.clauses = ['tag_id = %(id)i', eventCondition(event, table='tag_extra_config')]
+    extra = query.executeOne()
+
+    if extra:
+        result.update(extra)
+
     return result
+
 
 def edit_tag(tagInfo, **kwargs):
     """Edit information for an existing tag.
@@ -2838,6 +2886,7 @@ def edit_tag(tagInfo, **kwargs):
         maven_support: whether Maven repos should be generated for the tag
         maven_include_all: include every build in this tag (including multiple
                            versions of the same package) in the Maven repo
+        namespace: the namespace associated with the tag
     """
 
     context.session.assertPerm('admin')
@@ -2851,6 +2900,9 @@ def edit_tag(tagInfo, **kwargs):
             kwargs['perm_id'] = None
         else:
             kwargs['perm_id'] = get_perm_id(kwargs['perm'],strict=True)
+    if kwargs.has_key('namespace'):
+        kwargs['namespace_id'] = lookup_namespace(namespace, strict=True)['id']
+        # XXX ugh, are we really updating kwargs?
 
     name = kwargs.get('name')
     if name and tag['name'] != name:
