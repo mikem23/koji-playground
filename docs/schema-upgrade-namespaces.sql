@@ -12,7 +12,7 @@ INSERT INTO namespace (id, name) VALUES (0, 'DEFAULT');
 
 
 
-ALTER TABLE build ADD COLUMN namespace_id INTEGER DEFAULT 0;
+ALTER TABLE build ADD COLUMN namespace_id REFERENCES namespace(id) INTEGER DEFAULT 0;
 -- can be null
 
 
@@ -21,7 +21,7 @@ ALTER TABLE build ADD CONSTRAINT build_namespace_sanity UNIQUE (namespace_id, pk
 --      note that namespace_id can be null, which allows arbitrary nvr overlap
 
 
-ALTER TABLE rpminfo ADD COLUMN namespace_id INTEGER DEFAULT 0;
+ALTER TABLE rpminfo ADD COLUMN namespace_id REFERENCES namespace(id) INTEGER DEFAULT 0;
 -- can be null
 
 
@@ -38,21 +38,8 @@ UPDATE rpminfo set namespace_id=0;
 
 
 -- namespaces for tags
-CREATE TABLE tag_extra_config (
-        tag_id INTEGER NOT NULL REFERENCES tag(id),
-        namespace_id INTEGER REFERENCES namespace(id) DEFAULT 0,
--- versioned - see desc above
-        create_event INTEGER NOT NULL REFERENCES events(id) DEFAULT get_event(),
-        revoke_event INTEGER REFERENCES events(id),
-        creator_id INTEGER NOT NULL REFERENCES users(id),
-        revoker_id INTEGER REFERENCES users(id),
-        active BOOLEAN DEFAULT 'true' CHECK (active),
-        CONSTRAINT active_revoke_sane CHECK (
-                (active IS NULL AND revoke_event IS NOT NULL AND revoker_id IS NOT NULL)
-                OR (active IS NOT NULL AND revoke_event IS NULL AND revoker_id IS NULL)),
-        PRIMARY KEY (create_event, tag_id),
-        UNIQUE (tag_id,active)
-) WITHOUT OIDS;
+ALTER TABLE tag_config ADD COLUMN namespace_id INTEGER REFERENCES namespace(id) DEFAULT 0;
+UPDATE tag_config set namespace_id=0;
 
 
 COMMIT;
