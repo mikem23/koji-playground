@@ -2726,7 +2726,21 @@ def lookup_namespace(info, strict=False, create=False):
 
 def create_tag(name, parent=None, arches=None, perm=None, locked=False,
                maven_support=False, maven_include_all=False, namespace=-1):
-    """Create a new tag"""
+    """Create a new tag
+
+    Required args:
+        name - the name of the tag
+
+    Optional args:
+        parent - another tag for this one to inherit from
+        arches - tag architecture list (space separated)
+        perm - set required permission for tagging
+        locked - (boolean) mark the tag as locked
+        maven_support - (boolean) set the maven support flag
+        maven_include_all - (boolean) for maven repos created from this tag
+                include all versions, not just latest
+        namespace - set required namespace for this tag
+"""
 
     context.session.assertPerm('admin')
     if not context.opts.get('EnableMaven') and (maven_support or maven_include_all):
