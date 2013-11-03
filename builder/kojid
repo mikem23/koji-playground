@@ -102,6 +102,8 @@ def main(options, session):
         tm.restart_pending = True
     signal.signal(signal.SIGTERM,shutdown)
     signal.signal(signal.SIGUSR1,restart)
+    err_ts = 0
+    err_sleep = options.sleeptime
     while 1:
         try:
             taken = False
@@ -120,9 +122,19 @@ def main(options, session):
         except koji.RetryError:
             raise
         except:
-            # XXX - this is a little extreme
+            now = time.time()
+            # adjust sleep time based on error frequency
+            if err_sleep < 3600 and now - err_ts < 4 * err_sleep:
+                #untrapped errors are coming in pretty fast
+                err_sleep *= 2
+                logger.warn("Raising error sleep time to %s", err_sleep)
+            elif now - err_ts > min(10 * err_sleep, 3600):
+                err_sleep = options.sleeptime
+                logger.warn("Resetting error sleep time to %s", err_sleep)
+            err_ts = now
             # log the exception and continue
             logger.error(''.join(traceback.format_exception(*sys.exc_info())))
+            time.sleep(err_sleep)
         try:
             if not taken:
                 # Only sleep if we didn't take a task, otherwise retry immediately.
