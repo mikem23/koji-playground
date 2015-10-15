@@ -327,6 +327,10 @@ class ImportError(GenericError):
     """Raised when an import fails"""
     faultCode = 1020
 
+class LiveMediaError(GenericError):
+    """Raised when LiveMEDIA Image creation fails"""
+    faultCode = 1021
+
 class MultiCallInProgress(object):
     """
     Placeholder class to be returned by method calls when in the process of
@@ -2364,7 +2368,7 @@ def _taskLabel(taskInfo):
                 nvrs = taskInfo['request'][2]
                 if isinstance(nvrs, list):
                     extra += ', ' + ', '.join(nvrs)
-    elif method in ('livecd', 'appliance', 'image'):
+    elif method in ('livecd', 'appliance', 'image', 'livemedia'):
         if taskInfo.has_key('request'):
             stuff = taskInfo['request']
             if method == 'image':
@@ -2372,7 +2376,7 @@ def _taskLabel(taskInfo):
             else:
                 kickstart = os.path.basename(stuff[4])
             extra = '%s, %s-%s, %s' % (stuff[3], stuff[0], stuff[1], kickstart)
-    elif method in ('createLiveCD', 'createAppliance', 'createImage'):
+    elif method in ('createLiveCD', 'createAppliance', 'createImage', 'createLiveMEDIA'):
         if taskInfo.has_key('request'):
             stuff = taskInfo['request']
             if method == 'createImage':
