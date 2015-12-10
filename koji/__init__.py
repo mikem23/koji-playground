@@ -210,6 +210,11 @@ BR_STATES = Enum((
     'EXPIRED',
 ))
 
+BR_TYPES = Enum((
+    'STANDARD',
+    'EXTERNAL',
+))
+
 TAG_UPDATE_TYPES = Enum((
     'VOLUME_CHANGE',
     'IMPORT',
@@ -1593,6 +1598,7 @@ class ClientSession(object):
         self.opts = opts
         self._connection = None
         self._setup_connection()
+        self.authtype = None
         self.setSession(sinfo)
         self.multicall = False
         self._calls = []
@@ -1643,6 +1649,7 @@ class ClientSession(object):
             self.callnum = None
             # do we need to do anything else here?
             self._setup_connection()
+            self.authtype = None
         else:
             self.logged_in = True
             self.callnum = 0
@@ -1653,6 +1660,7 @@ class ClientSession(object):
         if not sinfo:
             return False
         self.setSession(sinfo)
+        self.authtype = AUTHTYPE_NORMAL
         return True
 
     def subsession(self):
@@ -1723,12 +1731,13 @@ class ClientSession(object):
             return False
         self.setSession(sinfo)
 
+        self.authtype = AUTHTYPE_KERB
         return True
 
     def _serverPrincipal(self, cprinc):
         """Get the Kerberos principal of the server we're connecting
         to, based on baseurl."""
-        servername = self._host
+        servername = socket.getfqdn(self._host)
         #portspec = servername.find(':')
         #if portspec != -1:
         #    servername = servername[:portspec]
@@ -1764,6 +1773,7 @@ class ClientSession(object):
         self.opts['certs'] = certs
         self.setSession(sinfo)
 
+        self.authtype = AUTHTYPE_SSL
         return True
 
     def logout(self):
@@ -1947,8 +1957,29 @@ class ClientSession(object):
                 except Exception, e:
                     self._close_connection()
                     if isinstance(e, OpenSSL.SSL.Error):
+                        # pyOpenSSL doesn't use different exception
+                        # subclasses, we have to actually parse the args
                         for arg in e.args:
-                            for _, _, ssl_reason in arg:
+                            # First, check to see if 'arg' is iterable because
+                            # it can be anything..
+                            try:
+                                iter(arg)
+                            except TypeError:
+                                continue
+
+                            # We do all this so that we can detect cert expiry
+                            # so we can avoid retrying those over and over.
+                            for items in arg:
+                                try:
+                                    iter(items)
+                                except TypeError:
+                                    continue
+
+                                if len(items) != 3:
+                                    continue
+
+                                _, _, ssl_reason = items
+
                                 if ('certificate revoked' in ssl_reason or
                                         'certificate expired' in ssl_reason):
                                     # There's no point in retrying for this
@@ -2051,7 +2082,7 @@ class ClientSession(object):
         result = self._callMethod('checkUpload', (path, name), chk_opts)
         if int(result['size']) != ofs:
             raise GenericError, "Uploaded file is wrong length: %s/%s, %s != %s" \
-                    % (path, name, result['sumlength'], ofs)
+                    % (path, name, result['size'], ofs)
         if problems and result['hexdigest'] != full_chksum.hexdigest():
             raise GenericError, "Uploaded file has wrong checksum: %s/%s, %s != %s" \
                     % (path, name, result['hexdigest'], full_chksum.hexdigest())
@@ -2398,11 +2429,6 @@ def _taskLabel(taskInfo):
         return '%s (%s)' % (method, extra)
     else:
         return '%s (%s)' % (method, arch)
-
-def _forceAscii(value):
-    """Replace characters not in the 7-bit ASCII range
-    with "?"."""
-    return ''.join([(ord(c) <= 127) and c or '?' for c in value])
 
 def fixEncoding(value, fallback='iso8859-15'):
     """

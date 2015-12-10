@@ -1098,16 +1098,30 @@ def buildinfo(environ, buildID):
         archivetype = None
     archives = server.listArchives(build['id'], type=archivetype, queryOpts={'order': 'filename'})
     archivesByExt = {}
+    topurl = environ['koji.options']['KojiFilesURL']
+    pathinfo = koji.PathInfo(topdir=topurl)
     for archive in archives:
+        if mavenbuild:
+            archive['display'] = archive['filename']
+            archive['dl_url'] = '/'.join([pathinfo.mavenbuild(build), pathinfo.mavenfile(archive)])
+        elif winbuild:
+            archive['display'] = pathinfo.winfile(archive)
+            archive['dl_url'] = '/'.join([pathinfo.winbuild(build), pathinfo.winfile(archive)])
+        elif imagebuild:
+            archive['display'] = archive['filename']
+            archive['dl_url'] = '/'.join([pathinfo.imagebuild(build), archive['filename']])
         archivesByExt.setdefault(os.path.splitext(archive['filename'])[1][1:], []).append(archive)
 
     rpmsByArch = {}
-    debuginfoByArch = {}
+    debuginfos = []
     for rpm in rpms:
         if koji.is_debuginfo(rpm['name']):
-            debuginfoByArch.setdefault(rpm['arch'], []).append(rpm)
+            debuginfos.append(rpm)
         else:
             rpmsByArch.setdefault(rpm['arch'], []).append(rpm)
+    # add debuginfos at the end
+    for rpm in debuginfos:
+        rpmsByArch.setdefault(rpm['arch'], []).append(rpm)
 
     if rpmsByArch.has_key('src'):
         srpm = rpmsByArch['src'][0]
@@ -1163,7 +1177,6 @@ def buildinfo(environ, buildID):
     values['build'] = build
     values['tags'] = tags
     values['rpmsByArch'] = rpmsByArch
-    values['debuginfoByArch'] = debuginfoByArch
     values['task'] = task
     values['mavenbuild'] = mavenbuild
     values['winbuild'] = winbuild
@@ -1180,7 +1193,7 @@ def buildinfo(environ, buildID):
         if not values.has_key(field):
             values[field] = None
 
-    values['start_time'] = build['creation_time']
+    values['start_time'] = build.get('start_time') or build['creation_time']
     # the build start time is not accurate for maven and win builds, get it from the
     # task start time instead
     if mavenbuild or winbuild:
@@ -1195,8 +1208,7 @@ def buildinfo(environ, buildID):
         else:
             values['estCompletion'] = None
 
-    topurl = environ['koji.options']['KojiFilesURL']
-    values['pathinfo'] = koji.PathInfo(topdir=topurl)
+    values['pathinfo'] = pathinfo
     return _genHTML(environ, 'buildinfo.chtml')
 
 def builds(environ, userID=None, tagID=None, packageID=None, state=None, order='-build_id', start=None, prefix=None, inherited='1', latest='1', type=None):
@@ -1621,17 +1633,21 @@ def buildrootinfo(environ, buildrootID, builtStart=None, builtOrder=None, compon
     buildrootID = int(buildrootID)
     buildroot = server.getBuildroot(buildrootID)
 
-    values['title'] = '%(tag_name)s-%(id)i-%(repo_id)i' % buildroot + ' | Buildroot Info'
-
     if buildroot == None:
         raise koji.GenericError, 'unknown buildroot ID: %i' % buildrootID
 
-    task = server.getTaskInfo(buildroot['task_id'], request=True)
+    elif buildroot['br_type'] == koji.BR_TYPES['STANDARD']:
+        template = 'buildrootinfo.chtml'
+        values['task'] = server.getTaskInfo(buildroot['task_id'], request=True)
 
+    else:
+        template = 'buildrootinfo_cg.chtml'
+        # TODO - fetch tools and extras info
+
+    values['title'] = '%s | Buildroot Info' % kojiweb.util.brLabel(buildroot)
     values['buildroot'] = buildroot
-    values['task'] = task
 
-    return _genHTML(environ, 'buildrootinfo.chtml')
+    return _genHTML(environ, template)
 
 def rpmlist(environ, type, buildrootID=None, imageID=None, start=None, order='nvr'):
     """
