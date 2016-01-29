@@ -516,7 +516,7 @@ CREATE TABLE cg_users (
 -- here we track the buildroots on the machines
 CREATE TABLE buildroot (
 	id SERIAL NOT NULL PRIMARY KEY,
-	br_type INTEGER NOT NULL
+	br_type INTEGER NOT NULL,
 	cg_id INTEGER REFERENCES content_generator (id),
 	cg_version TEXT,
 	CONSTRAINT cg_sane CHECK (
@@ -822,6 +822,8 @@ insert into archivetypes (name, description, extensions) values ('dot', 'DOT gra
 insert into archivetypes (name, description, extensions) values ('groovy', 'Groovy script file', 'groovy gvy');
 insert into archivetypes (name, description, extensions) values ('batch', 'Batch file', 'bat');
 insert into archivetypes (name, description, extensions) values ('shell', 'Shell script', 'sh');
+insert into archivetypes (name, description, extensions) values ('rc', 'Resource file', 'rc');
+insert into archivetypes (name, description, extensions) values ('wsdl', 'Web Services Description Language', 'wsdl');
 
 
 -- Do we want to enforce a constraint that a build can only generate one

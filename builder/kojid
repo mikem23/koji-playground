@@ -1909,7 +1909,7 @@ class ChainMavenTask(MultiPlatformTask):
                                                           task_opts],
                                            label=package)
                 else:
-                    raise koji.BuilError, 'unsupported build type: %s' % buildtype
+                    raise koji.BuildError, 'unsupported build type: %s' % buildtype
 
                 running[task_id] = package
                 del todo[package]
@@ -2560,7 +2560,7 @@ class ImageTask(BaseTaskHandler):
         #      may not be a problem if the included kickstarts are present
         #      in the repository we checked out.
         if opts.get('ksversion'):
-            version = ksparser.version.makeVersion(ksparser.stringToVersion(opts['ksversion']))
+            version = ksparser.version.makeVersion(opts['ksversion'])
         else:
             version = ksparser.version.makeVersion()
         self.ks = ksparser.KickstartParser(version)
@@ -3164,8 +3164,7 @@ class OzImageTask(BaseTaskHandler):
         #      macros, Oz will fail because it can only handle flat files.
         #      We require users to flatten their kickstart file.
         if self.opts.get('ksversion'):
-            version = ksparser.version.makeVersion(
-                ksparser.stringToVersion(self.opts['ksversion']))
+            version = ksparser.version.makeVersion(self.opts['ksversion'])
         else:
             version = ksparser.version.makeVersion()
         ks = ksparser.KickstartParser(version)
@@ -3218,7 +3217,7 @@ class OzImageTask(BaseTaskHandler):
             ks.handler.repo.repoList.append(repo_class(
                 baseurl=baseurl, name='koji-override-0'))
         # inject the URL of the install tree into the kickstart
-        ks.handler.url.url = install_tree
+        ks.handler.url(url=install_tree)
         return ks
 
     def writeKickstart(self, ksobj, ksname):
@@ -3336,7 +3335,7 @@ class OzImageTask(BaseTaskHandler):
         elif distro.startswith('SL'):
             return distro.split('.')
         else:
-            raise BuildError('Unknown or supported distro given: %s' % distro)
+            raise koji.BuildError('Unknown or supported distro given: %s' % distro)
 
     def fixImageXML(self, format, filename, xmltext):
 
@@ -3936,7 +3935,7 @@ class BuildIndirectionImageTask(OzImageTask):
 
             buildarchives = self.session.listArchives(build['id'])
             if not buildarchives:
-                raise koji.Builderror("Could not retrieve archives for build (%s) from NVR (%s)" %
+                raise koji.BuildError("Could not retrieve archives for build (%s) from NVR (%s)" %
                                       (build['id'], nvr))
 
             buildfiles = [ x['filename'] for x in buildarchives ]
@@ -4649,7 +4648,11 @@ class CreaterepoTask(BaseTaskHandler):
 
     def create_local_repo(self, rinfo, arch, pkglist, groupdata, oldrepo):
         koji.ensuredir(self.outdir)
-        cmd = ['/usr/bin/createrepo', '-vd', '-o', self.outdir]
+        if self.options.use_createrepo_c:
+            cmd = ['/usr/bin/createrepo_c']
+        else:
+            cmd = ['/usr/bin/createrepo']
+        cmd.extend(['-vd', '-o', self.outdir])
         if pkglist is not None:
             cmd.extend(['-i', pkglist])
         if os.path.isfile(groupdata):
@@ -4698,7 +4701,11 @@ class CreaterepoTask(BaseTaskHandler):
             repos.append(ext_url)
 
         blocklist = self.repodir + '/blocklist'
-        cmd = ['/usr/libexec/kojid/mergerepos', '-a', arch, '-b', blocklist, '-o', self.outdir]
+        if self.options.use_createrepo_c:
+            cmd = ['/usr/bin/mergerepo_c', '--koji']
+        else:
+            cmd = ['/usr/libexec/kojid/mergerepos']
+        cmd.extend(['-a', arch, '-b', blocklist, '-o', self.outdir])
         if os.path.isfile(groupdata):
             cmd.extend(['-g', groupdata])
         for repo in repos:
@@ -4869,6 +4876,7 @@ def get_options():
                 'keepalive' : True,
                 'timeout' : None,
                 'use_fast_upload': True,
+                'use_createrepo_c': False,
                 'createrepo_skip_stat': True,
                 'createrepo_update': True,
                 'pkgurl': None,
@@ -4880,7 +4888,7 @@ def get_options():
                 'failed_buildroot_lifetime' : 3600 * 4,
                 'rpmbuild_timeout' : 3600 * 24,
                 'cert': '/etc/kojid/client.crt',
-                'ca': '/etc/kojid/clientca.crt',
+                'ca': '',  # FIXME: Unused, remove in next major release
                 'serverca': '/etc/kojid/serverca.crt'}
     if config.has_section('kojid'):
         for name, value in config.items('kojid'):
@@ -4891,8 +4899,9 @@ def get_options():
                     defaults[name] = int(value)
                 except ValueError:
                     quit("value for %s option must be a valid integer" % name)
-            elif name in ['offline_retry', 'createrepo_skip_stat', 'createrepo_update',
-                          'keepalive', 'use_fast_upload', 'support_rpm_source_layout']:
+            elif name in ['offline_retry', 'use_createrepo_c',  'createrepo_skip_stat',
+                          'createrepo_update', 'keepalive', 'use_fast_upload',
+                          'support_rpm_source_layout']:
                 defaults[name] = config.getboolean('kojid', name)
             elif name in ['plugin', 'plugins']:
                 defaults['plugin'] = value.split()
@@ -4979,7 +4988,7 @@ if __name__ == "__main__":
     if os.path.isfile(options.cert):
         try:
             # authenticate using SSL client certificates
-            session.ssl_login(options.cert, options.ca,
+            session.ssl_login(options.cert, None,
                               options.serverca)
         except koji.AuthError, e:
             quit("Error: Unable to log in: %s" % e)

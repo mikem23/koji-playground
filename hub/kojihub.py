@@ -5014,7 +5014,8 @@ class CG_Importer(object):
         for key in legacy_types:
             if key in extra:
                 if l_type is not None:
-                    raise koji.GenericError("Output file has multiple archive types: %s" % fn)
+                    raise koji.GenericError("Output file has multiple archive"
+                        "types: %(filename)s" % fileinfo)
                 l_type = key
                 type_info = extra[key]
         fileinfo['hub.l_type'] = l_type
@@ -7751,8 +7752,9 @@ def rpmdiff(basepath, rpmlist):
         status = proc.wait()
         if os.WIFSIGNALED(status) or \
                 (os.WEXITSTATUS(status) != 0):
-            raise koji.BuildError, 'mismatch when analyzing %s, rpmdiff output was:\n%s' % \
-                (os.path.basename(first_rpm), output)
+            raise koji.BuildError(
+                'The following noarch package built differently on different architectures: %s\n'
+                'rpmdiff output was:\n%s' % (os.path.basename(first_rpm), output))
 
 def importImageInternal(task_id, build_id, imgdata):
     """
@@ -11219,7 +11221,7 @@ class HostExports(object):
             archivetype = get_archive_type(relpath)
             if not archivetype:
                 # Unknown archive type, fail the build
-                raise koji.BuildError, 'unsupported file type: %s' % filename
+                raise koji.BuildError, 'unsupported file type: %s' % relpath
             filepath = os.path.join(task_dir, relpath)
             metadata['relpath'] = os.path.dirname(relpath)
             import_archive(filepath, build_info, 'win', metadata, buildroot_id=results['buildroot_id'])
