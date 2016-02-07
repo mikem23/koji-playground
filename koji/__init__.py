@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+from __future__ import print_function
 # Python module
 # Common functions
 
@@ -22,6 +24,9 @@
 #       Mike Bonnet <mikeb@redhat.com>
 
 import sys
+import six
+from six.moves import range
+from six.moves import zip
 try:
     import krbV
 except ImportError:
@@ -31,7 +36,7 @@ import base64
 import datetime
 import errno
 from fnmatch import fnmatch
-import httplib
+import six.moves.http_client
 import logging
 import logging.handlers
 from koji.util import md5_constructor
@@ -44,8 +49,8 @@ import rpm
 import shutil
 import signal
 import socket
-import ssl.SSLCommon
-from ssl import ssl as pyssl
+from .ssl import SSLCommon
+from .ssl import ssl as pyssl
 import struct
 import tempfile
 import time
@@ -53,11 +58,11 @@ import traceback
 import urllib
 import urllib2
 import urlparse
-import util
-import xmlrpclib
+from . import util
+import six.moves.xmlrpc_client
 import xml.sax
 import xml.sax.handler
-from xmlrpclib import loads, dumps, Fault
+from six.moves.xmlrpc_client import loads, dumps, Fault
 import zipfile
 
 def _(args):
@@ -346,7 +351,7 @@ def convertFault(fault):
     code = getattr(fault,'faultCode',None)
     if code is None:
         return fault
-    for v in globals().values():
+    for v in list(globals().values()):
         if type(v) == type(Exception) and issubclass(v,GenericError) and \
                 code == getattr(v,'faultCode',None):
             ret = v(fault.faultString)
@@ -364,7 +369,7 @@ def listFaults():
         desc: the description of the exception (docstring)
     """
     ret = []
-    for n,v in globals().items():
+    for n,v in list(globals().items()):
         if type(v) == type(Exception) and issubclass(v,GenericError):
             code = getattr(v,'faultCode',None)
             if code is None:
@@ -409,8 +414,8 @@ def decode_args2(args, names, strict=True):
     "An alternate form of decode_args, returns a dictionary"
     args, opts = decode_args(*args)
     if strict and len(names) < len(args):
-        raise TypeError, "Expecting at most %i arguments" % len(names)
-    ret = dict(zip(names, args))
+        raise TypeError("Expecting at most %i arguments" % len(names))
+    ret = dict(list(zip(names, args)))
     ret.update(opts)
     return ret
 
@@ -426,7 +431,7 @@ def encode_int(n):
 
 def decode_int(n):
     """If n is not an integer, attempt to convert it"""
-    if isinstance(n, (int, long)):
+    if isinstance(n, six.integer_types):
         return n
     #else
     return int(n)
@@ -437,7 +442,7 @@ def safe_xmlrpc_loads(s):
     """Load xmlrpc data from a string, but catch faults"""
     try:
         return loads(s)
-    except Fault, f:
+    except Fault as f:
         return f
 
 ## BEGIN kojikamid dup
@@ -446,13 +451,13 @@ def ensuredir(directory):
     """Create directory, if necessary."""
     if os.path.exists(directory):
         if not os.path.isdir(directory):
-            raise OSError, "Not a directory: %s" % directory
+            raise OSError("Not a directory: %s" % directory)
     else:
         head, tail = os.path.split(directory)
         if not tail and head == directory:
             # can only happen if directory == '/' or equivalent
             # (which obviously should not happen)
-            raise OSError, "root directory missing? %s" % directory
+            raise OSError("root directory missing? %s" % directory)
         if head:
             ensuredir(head)
         # note: if head is blank, then we've reached the top of a relative path
@@ -494,7 +499,7 @@ def multibyte(data):
     """Convert a list of bytes to an integer (network byte order)"""
     sum = 0
     n = len(data)
-    for i in xrange(n):
+    for i in range(n):
         sum += data[i] << (8 * (n - i - 1))
     return sum
 
@@ -513,15 +518,15 @@ def rpm_hdr_size(f, ofs=None):
     f = filename or file object
     ofs = offset of the header
     """
-    if isinstance(f, (str, unicode)):
-        fo = file(f, 'rb')
+    if isinstance(f, (str, six.text_type)):
+        fo = open(f, 'rb')
     else:
         fo = f
     if ofs != None:
         fo.seek(ofs, 0)
     magic = fo.read(3)
     if magic != RPM_HEADER_MAGIC:
-        raise GenericError, "Invalid rpm: bad magic: %r" % magic
+        raise GenericError("Invalid rpm: bad magic: %r" % magic)
 
     # skip past section magic and such
     #   (3 bytes magic, 1 byte version number, 4 bytes reserved)
@@ -543,7 +548,7 @@ def rpm_hdr_size(f, ofs=None):
     # add eight bytes for section header
     hdrsize = hdrsize + 8
 
-    if not isinstance(f, (str, unicode)):
+    if not isinstance(f, (str, six.text_type)):
         fo.close()
     return hdrsize
 
@@ -554,7 +559,7 @@ class RawHeader(object):
 
     def __init__(self, data):
         if data[0:3] != RPM_HEADER_MAGIC:
-            raise GenericError, "Invalid rpm header: bad magic: %r" % (data[0:3],)
+            raise GenericError("Invalid rpm header: bad magic: %r" % (data[0:3],))
         self.header = data
         self._index()
 
@@ -572,9 +577,9 @@ class RawHeader(object):
 
         #read the index (starts at offset 16)
         index = {}
-        for i in xrange(il):
+        for i in range(il):
             entry = []
-            for j in xrange(4):
+            for j in range(4):
                 ofs = 16 + i*16 + j*4
                 data = [ ord(x) for x in self.header[ofs:ofs+4] ]
                 entry.append(multibyte(data))
@@ -584,21 +589,21 @@ class RawHeader(object):
         self.index = index
 
     def dump(self):
-        print "HEADER DUMP:"
+        print("HEADER DUMP:")
         #calculate start of store
         il = len(self.index)
         store = 16 + il * 16
         #print "start is: %d" % start
         #print "index length: %d" % il
-        print "Store at offset %d (%0x)" % (store,store)
+        print("Store at offset %d (%0x)" % (store,store))
         #sort entries by offset, dtype
         #also rearrange: tag, dtype, offset, count -> offset, dtype, tag, count
-        order = [(x[2], x[1], x[0], x[3]) for x in self.index.itervalues()]
+        order = [(x[2], x[1], x[0], x[3]) for x in six.itervalues(self.index)]
         order.sort()
         next = store
         #map some rpmtag codes
         tags = {}
-        for name, code in rpm.__dict__.iteritems():
+        for name, code in six.iteritems(rpm.__dict__):
             if name.startswith('RPMTAG_') and isinstance(code, int):
                 tags[code] = name[7:].lower()
         for entry in order:
@@ -607,66 +612,66 @@ class RawHeader(object):
             pos = store + offset
             if next is not None:
                 if pos > next:
-                    print "** HOLE between entries"
-                    print "Hex: %s" % hex_string(self.header[next:pos])
-                    print "Data: %r" % self.header[next:pos]
+                    print("** HOLE between entries")
+                    print("Hex: %s" % hex_string(self.header[next:pos]))
+                    print("Data: %r" % self.header[next:pos])
                 elif pos < next:
-                    print "** OVERLAPPING entries"
-            print "Tag: %d [%s], Type: %d, Offset: %x, Count: %d" \
-                    % (tag, tags.get(tag, '?'), dtype, offset, count)
+                    print("** OVERLAPPING entries")
+            print("Tag: %d [%s], Type: %d, Offset: %x, Count: %d" \
+                    % (tag, tags.get(tag, '?'), dtype, offset, count))
             if dtype == 0:
                 #null
-                print "[NULL entry]"
+                print("[NULL entry]")
                 next = pos
             elif dtype == 1:
                 #char
-                for i in xrange(count):
-                    print "Char: %r" % self.header[pos]
+                for i in range(count):
+                    print("Char: %r" % self.header[pos])
                     pos += 1
                 next = pos
             elif dtype >= 2 and dtype <= 5:
                 #integer
                 n = 1 << (dtype - 2)
-                for i in xrange(count):
+                for i in range(count):
                     data = [ ord(x) for x in self.header[pos:pos+n] ]
-                    print "%r" % data
+                    print("%r" % data)
                     num = multibyte(data)
-                    print "Int(%d): %d" % (n, num)
+                    print("Int(%d): %d" % (n, num))
                     pos += n
                 next = pos
             elif dtype == 6:
                 # string (null terminated)
                 end = self.header.find('\0', pos)
-                print "String(%d): %r" % (end-pos, self.header[pos:end])
+                print("String(%d): %r" % (end-pos, self.header[pos:end]))
                 next = end + 1
             elif dtype == 7:
-                print "Data: %s" % hex_string(self.header[pos:pos+count])
+                print("Data: %s" % hex_string(self.header[pos:pos+count]))
                 next = pos+count
             elif dtype == 8:
                 # string array
-                for i in xrange(count):
+                for i in range(count):
                     end = self.header.find('\0', pos)
-                    print "String(%d): %r" % (end-pos, self.header[pos:end])
+                    print("String(%d): %r" % (end-pos, self.header[pos:end]))
                     pos = end + 1
                 next = pos
             elif dtype == 9:
                 # unicode string array
-                for i in xrange(count):
+                for i in range(count):
                     end = self.header.find('\0', pos)
-                    print "i18n(%d): %r" % (end-pos, self.header[pos:end])
+                    print("i18n(%d): %r" % (end-pos, self.header[pos:end]))
                     pos = end + 1
                 next = pos
             else:
-                print "Skipping data type %x" % dtype
+                print("Skipping data type %x" % dtype)
                 next = None
         if next is not None:
             pos = store + self.datalen
             if next < pos:
-                print "** HOLE at end of data block"
-                print "Hex: %s" % hex_string(self.header[next:pos])
-                print "Data: %r" % self.header[next:pos]
+                print("** HOLE at end of data block")
+                print("Hex: %s" % hex_string(self.header[next:pos]))
+                print("Data: %r" % self.header[next:pos])
             elif pos > next:
-                print "** OVERFLOW in data block"
+                print("** OVERFLOW in data block")
 
     def __getitem__(self, key):
         tag, dtype, offset, count = self.index[key]
@@ -692,7 +697,7 @@ class RawHeader(object):
             return self.header[pos:pos+count]
         else:
             #XXX - not all valid data types are handled
-            raise GenericError, "Unable to read header data type: %x" % dtype
+            raise GenericError("Unable to read header data type: %x" % dtype)
 
     def get(self, key, default=None):
         entry = self.index.get(key)
@@ -705,7 +710,7 @@ class RawHeader(object):
 def rip_rpm_sighdr(src):
     """Rip the signature header out of an rpm"""
     (start, size) = find_rpm_sighdr(src)
-    fo = file(src, 'rb')
+    fo = open(src, 'rb')
     fo.seek(start, 0)
     sighdr = fo.read(size)
     fo.close()
@@ -716,7 +721,7 @@ def rip_rpm_hdr(src):
     (start, size) = find_rpm_sighdr(src)
     start += size
     size = rpm_hdr_size(src, start)
-    fo = file(src, 'rb')
+    fo = open(src, 'rb')
     fo.seek(start, 0)
     hdr = fo.read(size)
     fo.close()
@@ -726,7 +731,7 @@ def __parse_packet_header(pgp_packet):
     """Parse pgp_packet header, return tag type and the rest of pgp_packet"""
     byte0 = ord(pgp_packet[0])
     if (byte0 & 0x80) == 0:
-        raise ValueError, 'Not an OpenPGP packet'
+        raise ValueError('Not an OpenPGP packet')
     if (byte0 & 0x40) == 0:
         tag = (byte0 & 0x3C) >> 2
         len_type = byte0 & 0x03
@@ -750,10 +755,9 @@ def __parse_packet_header(pgp_packet):
             offset = 6
         else:
             # Who the ... would use partial body lengths in a signature packet?
-            raise NotImplementedError, \
-                'OpenPGP packet with partial body lengths'
+            raise NotImplementedError('OpenPGP packet with partial body lengths')
     if len(pgp_packet) != offset + length:
-        raise ValueError, 'Invalid OpenPGP packet length'
+        raise ValueError('Invalid OpenPGP packet length')
     return (tag, pgp_packet[offset:])
 
 def __subpacket_key_ids(subs):
@@ -779,7 +783,7 @@ def get_sigpacket_key_id(sigpacket):
     """Return ID of the key used to create sigpacket as a hexadecimal string"""
     (tag, sigpacket) = __parse_packet_header(sigpacket)
     if tag != 2:
-        raise ValueError, 'Not a signature packet'
+        raise ValueError('Not a signature packet')
     if ord(sigpacket[0]) == 0x03:
         key_id = sigpacket[11:15]
     elif ord(sigpacket[0]) == 0x04:
@@ -790,12 +794,10 @@ def get_sigpacket_key_id(sigpacket):
         off += 2
         key_ids += __subpacket_key_ids(sigpacket[off : off+sub_len])
         if len(key_ids) != 1:
-            raise NotImplementedError, \
-                'Unexpected number of key IDs: %s' % len(key_ids)
+            raise NotImplementedError('Unexpected number of key IDs: %s' % len(key_ids))
         key_id = key_ids[0][-4:]
     else:
-        raise NotImplementedError, \
-            'Unknown PGP signature packet version %s' % ord(sigpacket[0])
+        raise NotImplementedError('Unknown PGP signature packet version %s' % ord(sigpacket[0]))
     return hex_string(key_id)
 
 def get_sighdr_key(sighdr):
@@ -815,8 +817,8 @@ def splice_rpm_sighdr(sighdr, src, dst=None, bufsize=8192):
     if dst is None:
         (fd, dst) = tempfile.mkstemp()
         os.close(fd)
-    src_fo = file(src, 'rb')
-    dst_fo = file(dst, 'wb')
+    src_fo = open(src, 'rb')
+    dst_fo = open(dst, 'wb')
     dst_fo.write(src_fo.read(start))
     dst_fo.write(sighdr)
     src_fo.seek(size, 1)
@@ -834,8 +836,8 @@ def get_rpm_header(f, ts=None):
     if ts is None:
         ts = rpm.TransactionSet()
         ts.setVSFlags(rpm._RPMVSF_NOSIGNATURES|rpm._RPMVSF_NODIGESTS)
-    if isinstance(f, (str, unicode)):
-        fo = file(f, "r")
+    if isinstance(f, (str, six.text_type)):
+        fo = open(f, "r")
     else:
         fo = f
     hdr = ts.hdrFromFdno(fo.fileno())
@@ -847,7 +849,7 @@ def get_header_field(hdr,name):
     """Extract named field from an rpm header"""
     idx = getattr(rpm,"RPMTAG_%s" % name.upper(),None)
     if idx is None:
-        raise GenericError, "No such rpm header field: %s" % name
+        raise GenericError("No such rpm header field: %s" % name)
     return hdr[idx]
 
 def get_header_fields(X,fields):
@@ -959,7 +961,7 @@ class POMHandler(xml.sax.handler.ContentHandler):
             if self.tag_stack[-2] == 'parent':
                 # Only set a value from the "parent" tag if we don't already have
                 # that value set
-                if not self.values.has_key(self.tag_stack[-1]):
+                if self.tag_stack[-1] not in self.values:
                     self.values[self.tag_stack[-1]] = self.tag_content.strip()
             elif self.tag_stack[-2] == 'project':
                 self.values[self.tag_stack[-1]] = self.tag_content.strip()
@@ -987,12 +989,12 @@ def parse_pom(path=None, contents=None):
     values = {}
     handler = POMHandler(values, fields)
     if path:
-        fd = file(path)
+        fd = open(path)
         contents = fd.read()
         fd.close()
 
     if not contents:
-        raise GenericError, 'either a path to a pom file or the contents of a pom file must be specified'
+        raise GenericError('either a path to a pom file or the contents of a pom file must be specified')
 
     # A common problem is non-UTF8 characters in XML files, so we'll convert the string first
 
@@ -1008,8 +1010,8 @@ def parse_pom(path=None, contents=None):
         xml.sax.parseString(contents, handler)
 
     for field in fields:
-        if field not in values.keys():
-            raise GenericError, 'could not extract %s from POM: %s' % (field, (path or '<contents>'))
+        if field not in list(values.keys()):
+            raise GenericError('could not extract %s from POM: %s' % (field, (path or '<contents>')))
     return values
 
 def pom_to_maven_info(pominfo):
@@ -1080,7 +1082,7 @@ BuildArch: noarch
     #index groups
     groups = dict([(g['name'],g) for g in grplist])
     for group_name in need:
-        if seen_grp.has_key(group_name):
+        if group_name in seen_grp:
             continue
         seen_grp[group_name] = 1
         group = groups.get(group_name)
@@ -1092,12 +1094,12 @@ BuildArch: noarch
         pkglist.sort(lambda a,b: cmp(a['package'], b['package']))
         for pkg in pkglist:
             pkg_name = pkg['package']
-            if seen_pkg.has_key(pkg_name):
+            if pkg_name in seen_pkg:
                 continue
             data.append("Requires: %s\n" % pkg_name)
         for req in group['grouplist']:
             req_name = req['name']
-            if seen_grp.has_key(req_name):
+            if req_name in seen_grp:
                 continue
             need.append(req_name)
     data.append("""
@@ -1208,7 +1210,7 @@ def generate_comps(groups, expand_groups=False):
             for p in g['packagelist']:
                 seen_pkg[p['package']] = 1
             for group_name in need:
-                if seen_grp.has_key(group_name):
+                if group_name in seen_grp:
                     continue
                 seen_grp[group_name] = 1
                 group = group_idx.get(group_name)
@@ -1224,14 +1226,14 @@ def generate_comps(groups, expand_groups=False):
                 pkglist.sort(lambda a,b: cmp(a['package'], b['package']))
                 for pkg in pkglist:
                     pkg_name = pkg['package']
-                    if seen_pkg.has_key(pkg_name):
+                    if pkg_name in seen_pkg:
                         continue
                     data.append(
 """      %s
 """ % package_entry(pkg))
                 for req in group['grouplist']:
                     req_name = req['name']
-                    if seen_grp.has_key(req_name):
+                    if req_name in seen_grp:
                         continue
                     need.append(req_name)
         data.append(
@@ -1259,7 +1261,7 @@ def genMockConfig(name, arch, managed=False, repoid=None, tag_name=None, **opts)
         urls = [opts['url']]
     else:
         if not (repoid and tag_name):
-            raise GenericError, "please provide a repo and tag"
+            raise GenericError("please provide a repo and tag")
         topurls = opts.get('topurls')
         if not topurls:
             #cli command still passes plain topurl
@@ -1302,14 +1304,14 @@ def genMockConfig(name, arch, managed=False, repoid=None, tag_name=None, **opts)
     if opts.get('use_host_resolv', False) and os.path.exists('/etc/hosts'):
         # if we're setting up DNS,
         # also copy /etc/hosts from the host
-        etc_hosts = file('/etc/hosts')
+        etc_hosts = open('/etc/hosts')
         files['etc/hosts'] = etc_hosts.read()
         etc_hosts.close()
     mavenrc = ''
     if opts.get('maven_opts'):
         mavenrc = 'export MAVEN_OPTS="%s"\n' % ' '.join(opts['maven_opts'])
     if opts.get('maven_envs'):
-        for name, val in opts['maven_envs'].iteritems():
+        for name, val in six.iteritems(opts['maven_envs']):
             mavenrc += 'export %s="%s"\n' % (name, val)
     if mavenrc:
         files['etc/mavenrc'] = mavenrc
@@ -1369,25 +1371,25 @@ name=build
 """ % locals())
 
     parts.append("\n")
-    for key, value in config_opts.iteritems():
+    for key, value in six.iteritems(config_opts):
         parts.append("config_opts[%r] = %r\n" % (key, value))
     parts.append("\n")
-    for key, value in plugin_conf.iteritems():
+    for key, value in six.iteritems(plugin_conf):
         parts.append("config_opts['plugin_conf'][%r] = %r\n" % (key, value))
     parts.append("\n")
 
     if bind_opts:
         # This line is REQUIRED for mock to work if bind_opts defined.
         parts.append("config_opts['internal_dev_setup'] = False\n")
-        for key in bind_opts.keys():
-            for mnt_src, mnt_dest in bind_opts.get(key).iteritems():
+        for key in list(bind_opts.keys()):
+            for mnt_src, mnt_dest in six.iteritems(bind_opts.get(key)):
                 parts.append("config_opts['plugin_conf']['bind_mount_opts'][%r].append((%r, %r))\n" % (key, mnt_src, mnt_dest))
         parts.append("\n")
 
-    for key, value in macros.iteritems():
+    for key, value in six.iteritems(macros):
         parts.append("config_opts['macros'][%r] = %r\n" % (key, value))
     parts.append("\n")
-    for key, value in files.iteritems():
+    for key, value in six.iteritems(files):
         parts.append("config_opts['files'][%r] = %r\n" % (key, value))
 
     return ''.join(parts)
@@ -1410,13 +1412,13 @@ def format_exc_plus():
         stack.append(f)
         f = f.f_back
     stack.reverse()
-    rv = ''.join(traceback.format_exception(sys.exc_type, sys.exc_value, sys.exc_traceback))
+    rv = ''.join(traceback.format_exception(sys.exc_info()[0], sys.exc_info()[1], sys.exc_info()[2]))
     rv += "Locals by frame, innermost last\n"
     for frame in stack:
         rv += "Frame %s in %s at line %s\n" % (frame.f_code.co_name,
                                                frame.f_code.co_filename,
                                                frame.f_lineno)
-        for key, value in frame.f_locals.items():
+        for key, value in list(frame.f_locals.items()):
             rv += "  %20s = " % key
             # we must _absolutely_ avoid propagating eceptions, and str(value)
             # COULD cause any exception, so we MUST catch any...:
@@ -1442,7 +1444,7 @@ def openRemoteFile(relpath, topurl=None, topdir=None):
         fn = "%s/%s" % (topdir, relpath)
         fo = open(fn)
     else:
-        raise GenericError, "No access method for remote file: %s" % relpath
+        raise GenericError("No access method for remote file: %s" % relpath)
     return fo
 
 
@@ -1450,7 +1452,7 @@ def config_directory_contents(dir_name):
     configs = []
     try:
         conf_dir_contents = os.listdir(dir_name)
-    except OSError, exception:
+    except OSError as exception:
         if exception.errno != errno.ENOENT:
             raise
     else:
@@ -1464,7 +1466,7 @@ def config_directory_contents(dir_name):
 
 class PathInfo(object):
     # ASCII numbers and upper- and lower-case letter for use in tmpdir()
-    ASCII_CHARS = [chr(i) for i in range(48, 58) + range(65, 91) + range(97, 123)]
+    ASCII_CHARS = [chr(i) for i in list(range(48, 58)) + list(range(65, 91)) + list(range(97, 123))]
 
     def __init__(self, topdir=None):
         self._topdir = topdir
@@ -1608,9 +1610,9 @@ class ClientSession(object):
         self._path = uri[2]
         default_port = 80
         if self.opts.get('certs'):
-            ctx = ssl.SSLCommon.CreateSSLContext(self.opts['certs'])
+            ctx = SSLCommon.CreateSSLContext(self.opts['certs'])
             cnxOpts = {'ssl_context' : ctx}
-            cnxClass = ssl.SSLCommon.PlgHTTPSConnection
+            cnxClass = SSLCommon.PlgHTTPSConnection
             default_port = 443
         elif scheme == 'https':
             cnxOpts = {}
@@ -1619,13 +1621,13 @@ class ClientSession(object):
                 ctx = pyssl._create_unverified_context()
                 # TODO - we should default to verifying where possible
                 cnxOpts['context'] = ctx
-            cnxClass = httplib.HTTPSConnection
+            cnxClass = six.moves.http_client.HTTPSConnection
             default_port = 443
         elif scheme == 'http':
             cnxOpts = {}
-            cnxClass = httplib.HTTPConnection
+            cnxClass = six.moves.http_client.HTTPConnection
         else:
-            raise IOError, "unsupported XML-RPC protocol"
+            raise IOError("unsupported XML-RPC protocol")
         # set a default 12 hour connection timeout.
         # Some Koji operations can take a long time to return, but after 12
         # hours we can assume something is seriously wrong.
@@ -1692,7 +1694,7 @@ class ClientSession(object):
                 ccache.init(cprinc)
                 ccache.init_creds_keytab(principal=cprinc, keytab=keytab)
             else:
-                raise AuthError, 'cannot specify a principal without a keytab'
+                raise AuthError('cannot specify a principal without a keytab')
         else:
             # We're trying to log ourself in.  Connect using existing credentials.
             cprinc = ccache.principal()
@@ -1725,7 +1727,7 @@ class ClientSession(object):
         # decode and decrypt the login info
         sinfo_priv = base64.decodestring(sinfo_enc)
         sinfo_str = ac.rd_priv(sinfo_priv)
-        sinfo = dict(zip(['session-id', 'session-key'], sinfo_str.split()))
+        sinfo = dict(list(zip(['session-id', 'session-key'], sinfo_str.split())))
 
         if not sinfo:
             self.logger.warn('No session info received')
@@ -1754,13 +1756,13 @@ class ClientSession(object):
         # FIXME: ca is not useful here and therefore ignored, can be removed
         # when API is changed
 
-        ctx = ssl.SSLCommon.CreateSSLContext(certs)
+        ctx = SSLCommon.CreateSSLContext(certs)
         self._cnxOpts = {'ssl_context' : ctx}
         # 60 second timeout during login
         old_timeout = self._cnxOpts.get('timeout')
         self._cnxOpts['timeout'] = 60
         try:
-            self._cnxClass = ssl.SSLCommon.PlgHTTPSConnection
+            self._cnxClass = SSLCommon.PlgHTTPSConnection
             if self._port == 80 and not self.explicit_port:
                 self._port = 443
             sinfo = self.callMethod('sslLogin', proxyuser)
@@ -1770,7 +1772,7 @@ class ClientSession(object):
             else:
                 self._cnxOpts['timeout'] = old_timeout
         if not sinfo:
-            raise AuthError, 'unable to obtain a session'
+            raise AuthError('unable to obtain a session')
 
         self.opts['certs'] = certs
         self.setSession(sinfo)
@@ -1845,11 +1847,11 @@ class ClientSession(object):
         for i in (0, 1):
             try:
                 return self._sendOneCall(handler, headers, request)
-            except socket.error, e:
+            except socket.error as e:
                 self._close_connection()
                 if i or getattr(e, 'errno', None) not in (errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE):
                     raise
-            except httplib.BadStatusLine:
+            except six.moves.http_client.BadStatusLine:
                 self._close_connection()
                 if i:
                     raise
@@ -1897,15 +1899,15 @@ class ClientSession(object):
         if response.status != 200:
             if (response.getheader("content-length", 0)):
                 response.read()
-            raise xmlrpclib.ProtocolError(self._host + handler,
+            raise six.moves.xmlrpc_client.ProtocolError(self._host + handler,
                         response.status, response.reason, response.msg)
-        p, u = xmlrpclib.getparser()
+        p, u = six.moves.xmlrpc_client.getparser()
         while True:
             chunk = response.read(8192)
             if not chunk:
                 break
             if self.opts.get('debug_xmlrpc', False):
-                print "body: %r" % chunk
+                print("body: %r" % chunk)
             p.feed(chunk)
         p.close()
         result = u.close()
@@ -1940,7 +1942,7 @@ class ClientSession(object):
                 # note that, for logged-in sessions the server should tell us (via a RetryError fault)
                 # if the call cannot be retried. For non-logged-in sessions, all calls should be read-only
                 # and hence retryable.
-                except Fault, fault:
+                except Fault as fault:
                     #try to convert the fault to a known exception
                     err = convertFault(fault)
                     if isinstance(err, ServerOffline):
@@ -1956,10 +1958,10 @@ class ClientSession(object):
                 except (SystemExit, KeyboardInterrupt):
                     #(depending on the python version, these may or may not be subclasses of Exception)
                     raise
-                except Exception, e:
+                except Exception as e:
                     self._close_connection()
 
-                    if ssl.SSLCommon.is_cert_error(e):
+                    if SSLCommon.is_cert_error(e):
                         # There's no point in retrying for this
                         raise
 
@@ -1994,7 +1996,7 @@ class ClientSession(object):
         method call, or a map containing "faultCode" and "faultString" keys, describing the
         error that occurred during the method call."""
         if not self.multicall:
-            raise GenericError, 'ClientSession.multicall must be set to True before calling multiCall()'
+            raise GenericError('ClientSession.multicall must be set to True before calling multiCall()')
         self.multicall = False
         if len(self._calls) == 0:
             return []
@@ -2018,12 +2020,12 @@ class ClientSession(object):
 
     def fastUpload(self, localfile, path, name=None, callback=None, blocksize=1048576, overwrite=False):
         if not self.logged_in:
-            raise ActionNotAllowed, 'You must be logged in to upload files'
+            raise ActionNotAllowed('You must be logged in to upload files')
         if name is None:
             name = os.path.basename(localfile)
         self.logger.debug("Fast upload: %s to %s/%s", localfile, path, name)
         size = os.stat(localfile).st_size
-        fo = file(localfile, 'rb')
+        fo = open(localfile, 'rb')
         ofs = 0
         size = os.path.getsize(localfile)
         start = time.time()
@@ -2042,10 +2044,10 @@ class ClientSession(object):
             hexdigest = util.adler32_constructor(chunk).hexdigest()
             full_chksum.update(chunk)
             if result['size'] != len(chunk):
-                raise GenericError, "server returned wrong chunk size: %s != %s" % (result['size'], len(chunk))
+                raise GenericError("server returned wrong chunk size: %s != %s" % (result['size'], len(chunk)))
             if result['hexdigest'] != hexdigest:
-                raise GenericError, 'upload checksum failed: %s != %s' \
-                        % (result['hexdigest'], hexdigest)
+                raise GenericError('upload checksum failed: %s != %s' \
+                        % (result['hexdigest'], hexdigest))
             ofs += len(chunk)
             now = time.time()
             t1 = max(now - lap, 0.00001)
@@ -2060,17 +2062,17 @@ class ClientSession(object):
             chk_opts['verify'] = 'adler32'
         result = self._callMethod('checkUpload', (path, name), chk_opts)
         if int(result['size']) != ofs:
-            raise GenericError, "Uploaded file is wrong length: %s/%s, %s != %s" \
-                    % (path, name, result['size'], ofs)
+            raise GenericError("Uploaded file is wrong length: %s/%s, %s != %s" \
+                    % (path, name, result['size'], ofs))
         if problems and result['hexdigest'] != full_chksum.hexdigest():
-            raise GenericError, "Uploaded file has wrong checksum: %s/%s, %s != %s" \
-                    % (path, name, result['hexdigest'], full_chksum.hexdigest())
+            raise GenericError("Uploaded file has wrong checksum: %s/%s, %s != %s" \
+                    % (path, name, result['hexdigest'], full_chksum.hexdigest()))
         self.logger.debug("Fast upload: %s complete. %i bytes in %.1f seconds", localfile, size, t2)
 
     def _prepUpload(self, chunk, offset, path, name, verify="adler32", overwrite=False):
         """prep a rawUpload call"""
         if not self.logged_in:
-            raise ActionNotAllowed, "you must be logged in to upload"
+            raise ActionNotAllowed("you must be logged in to upload")
         args = self.sinfo.copy()
         args['callnum'] = self.callnum
         args['filename'] = name
@@ -2112,7 +2114,7 @@ class ClientSession(object):
         start=time.time()
         # XXX - stick in a config or something
         retries=3
-        fo = file(localfile, "r")  #specify bufsize?
+        fo = open(localfile, "r")  #specify bufsize?
         totalsize = os.path.getsize(localfile)
         ofs = 0
         md5sum = md5_constructor()
@@ -2145,7 +2147,7 @@ class ClientSession(object):
                     tries += 1
                     continue
                 else:
-                    raise GenericError, "Error uploading file %s, offset %d" %(path, offset)
+                    raise GenericError("Error uploading file %s, offset %d" %(path, offset))
             if size == 0:
                 break
             ofs += size
@@ -2171,7 +2173,7 @@ class ClientSession(object):
         Note: This method does not work with multicall.
         """
         if self.multicall:
-            raise GenericError, 'downloadTaskOutput() may not be called during a multicall'
+            raise GenericError('downloadTaskOutput() may not be called during a multicall')
         result = self.callMethod('downloadTaskOutput', taskID, fileName, offset, size)
         return base64.decodestring(result)
 
@@ -2206,7 +2208,7 @@ class DBHandler(logging.Handler):
             values = []
             data = {}
             record.message = record.getMessage()
-            for key, value in self.mapping.iteritems():
+            for key, value in six.iteritems(self.mapping):
                 value = str(value)
                 if value.find("%(asctime)") >= 0:
                     if self.formatter:
@@ -2308,7 +2310,7 @@ def _taskLabel(taskInfo):
     arch = taskInfo['arch']
     extra = ''
     if method in ('build', 'maven'):
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             source, target = taskInfo['request'][:2]
             if '://' in source:
                 module_info = _module_info(source)
@@ -2316,20 +2318,20 @@ def _taskLabel(taskInfo):
                 module_info = os.path.basename(source)
             extra = '%s, %s' % (target, module_info)
     elif method in ('buildSRPMFromSCM', 'buildSRPMFromCVS'):
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             url = taskInfo['request'][0]
             extra = _module_info(url)
     elif method == 'buildArch':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             srpm, tagID, arch = taskInfo['request'][:3]
             srpm = os.path.basename(srpm)
             extra = '%s, %s' % (srpm, arch)
     elif method == 'buildMaven':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             build_tag = taskInfo['request'][1]
             extra = build_tag['name']
     elif method == 'wrapperRPM':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             build_target = taskInfo['request'][1]
             build = taskInfo['request'][2]
             if build:
@@ -2337,49 +2339,49 @@ def _taskLabel(taskInfo):
             else:
                 extra = build_target['name']
     elif method == 'winbuild':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             vm = taskInfo['request'][0]
             url = taskInfo['request'][1]
             target = taskInfo['request'][2]
             module_info = _module_info(url)
             extra = '%s, %s' % (target, module_info)
     elif method == 'vmExec':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             extra = taskInfo['request'][0]
     elif method == 'buildNotification':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             build = taskInfo['request'][1]
             extra = buildLabel(build)
     elif method == 'newRepo':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             extra = str(taskInfo['request'][0])
     elif method in ('tagBuild', 'tagNotification'):
         # There is no displayable information included in the request
         # for these methods
         pass
     elif method == 'prepRepo':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             tagInfo = taskInfo['request'][0]
             extra = tagInfo['name']
     elif method == 'createrepo':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             arch = taskInfo['request'][1]
             extra = arch
     elif method == 'dependantTask':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             extra = ', '.join([subtask[0] for subtask in taskInfo['request'][1]])
     elif method in ('chainbuild', 'chainmaven'):
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             extra = taskInfo['request'][1]
     elif method == 'waitrepo':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             extra = str(taskInfo['request'][0])
             if len(taskInfo['request']) >= 3:
                 nvrs = taskInfo['request'][2]
                 if isinstance(nvrs, list):
                     extra += ', ' + ', '.join(nvrs)
     elif method in ('livecd', 'appliance', 'image'):
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             stuff = taskInfo['request']
             if method == 'image':
                 kickstart = os.path.basename(stuff[-1]['kickstart'])
@@ -2387,7 +2389,7 @@ def _taskLabel(taskInfo):
                 kickstart = os.path.basename(stuff[4])
             extra = '%s, %s-%s, %s' % (stuff[3], stuff[0], stuff[1], kickstart)
     elif method in ('createLiveCD', 'createAppliance', 'createImage'):
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             stuff = taskInfo['request']
             if method == 'createImage':
                 kickstart = os.path.basename(stuff[-1]['kickstart'])
@@ -2396,11 +2398,11 @@ def _taskLabel(taskInfo):
             extra = '%s, %s-%s-%s, %s, %s' % (stuff[4]['name'], stuff[0],
                 stuff[1], stuff[2], kickstart, stuff[3])
     elif method == 'restart':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             host = taskInfo['request'][0]
             extra = host['name']
     elif method == 'restartVerify':
-        if taskInfo.has_key('request'):
+        if 'request' in taskInfo:
             task_id, host = taskInfo['request'][:2]
             extra = host['name']
 
@@ -2418,7 +2420,7 @@ def fixEncoding(value, fallback='iso8859-15'):
     if not value:
         return ''
 
-    if isinstance(value, unicode):
+    if isinstance(value, six.text_type):
         # value is already unicode, so just convert it
         # to a utf8-encoded str
         return value.encode('utf8')
@@ -2428,7 +2430,7 @@ def fixEncoding(value, fallback='iso8859-15'):
         # decode it using the fallback encoding.
         try:
             return value.decode('utf8').encode('utf8')
-        except UnicodeDecodeError, err:
+        except UnicodeDecodeError as err:
             return value.decode(fallback).encode('utf8')
 
 def add_file_logger(logger, fn):

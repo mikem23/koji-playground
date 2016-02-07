@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+from __future__ import print_function
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 2 of the License, or
@@ -16,10 +18,10 @@
 
 import os, sys
 from OpenSSL import SSL
-import SSLConnection
-import httplib
+from . import SSLConnection
+import six.moves.http_client
 import socket
-import SocketServer
+import six.moves.socketserver
 
 def our_verify(connection, x509, errNum, errDepth, preverifyOK):
     # print "Verify: errNum = %s, errDepth = %s, preverifyOK = %s" % (errNum, errDepth, preverifyOK)
@@ -71,7 +73,7 @@ def CreateSSLContext(certs):
     peer_ca_cert = certs['peer_ca_cert']
     for f in key_and_cert, peer_ca_cert:
         if f and not os.access(f, os.R_OK):
-            raise StandardError, "%s does not exist or is not readable" % f
+            raise Exception("%s does not exist or is not readable" % f)
 
     ctx = SSL.Context(SSL.SSLv23_METHOD)   # Use best possible TLS Method
     ctx.use_certificate_file(key_and_cert)
@@ -84,13 +86,13 @@ def CreateSSLContext(certs):
     return ctx
 
 
-class PlgHTTPSConnection(httplib.HTTPConnection):
+class PlgHTTPSConnection(six.moves.http_client.HTTPConnection):
     "This class allows communication via SSL."
 
-    response_class = httplib.HTTPResponse
+    response_class = six.moves.http_client.HTTPResponse
 
     def __init__(self, host, port=None, ssl_context=None, strict=None, timeout=None):
-        httplib.HTTPConnection.__init__(self, host, port, strict)
+        six.moves.http_client.HTTPConnection.__init__(self, host, port, strict)
         self.ssl_ctx = ssl_context
         self._timeout = timeout
 
@@ -105,14 +107,14 @@ class PlgHTTPSConnection(httplib.HTTPConnection):
                     self.sock.settimeout(self._timeout)
                 self.sock.connect(sa)
                 if self.debuglevel > 0:
-                    print "connect: (%s, %s) [ssl]" % (self.host, self.port)
-            except socket.error, msg:
+                    print("connect: (%s, %s) [ssl]" % (self.host, self.port))
+            except socket.error as msg:
                 if self.debuglevel > 0:
-                    print 'connect fail:', (self.host, self.port)
+                    print('connect fail:', (self.host, self.port))
                 if self.sock:
                     self.sock.close()
                 self.sock = None
                 continue
             break
         else:
-            raise socket.error, "failed to connect"
+            raise socket.error("failed to connect")

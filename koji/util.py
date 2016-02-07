@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 # Copyright (c) 2005-2014 Red Hat, Inc.
 #
 #    Koji is free software; you can redistribute it and/or
@@ -29,8 +30,10 @@ import resource
 import stat
 import sys
 import time
-import ConfigParser
+import six.moves.configparser
 from zlib import adler32
+import six
+from six.moves import range
 
 try:
     from hashlib import md5 as md5_constructor
@@ -122,7 +125,7 @@ def multi_fnmatch(s, patterns):
 
     If patterns is a string, it will be split() first
     """
-    if isinstance(patterns, basestring):
+    if isinstance(patterns, six.string_types):
         patterns = patterns.split()
     for pat in patterns:
         if fnmatch(s, pat):
@@ -133,7 +136,7 @@ def dslice(dict, keys, strict=True):
     """Returns a new dictionary containing only the specified keys"""
     ret = {}
     for key in keys:
-        if strict or dict.has_key(key):
+        if strict or key in dict:
             #for strict we skip the has_key check and let the dict generate the KeyError
             ret[key] = dict[key]
     return ret
@@ -142,7 +145,7 @@ def dslice_ex(dict, keys, strict=True):
     """Returns a new dictionary with only the specified keys removed"""
     ret = dict.copy()
     for key in keys:
-        if strict or ret.has_key(key):
+        if strict or key in ret:
             del ret[key]
     return ret
 
@@ -152,12 +155,12 @@ def call_with_argcheck(func, args, kwargs=None):
         kwargs = {}
     try:
         return func(*args, **kwargs)
-    except TypeError, e:
+    except TypeError as e:
         if sys.exc_info()[2].tb_next is None:
             # The stack is only one high, so the error occurred in this function.
             # Therefore, we assume the TypeError is due to a parameter mismatch
             # in the above function call.
-            raise koji.ParameterError, str(e)
+            raise koji.ParameterError(str(e))
         raise
 
 
@@ -230,17 +233,17 @@ class LazyDict(dict):
         return LazyDict(self)
 
     def values(self):
-        return [lazy_eval(val) for val in super(LazyDict, self).values()]
+        return [lazy_eval(val) for val in list(super(LazyDict, self).values())]
 
     def items(self):
-        return [(key, lazy_eval(val)) for key, val in super(LazyDict, self).items()]
+        return [(key, lazy_eval(val)) for key, val in list(super(LazyDict, self).items())]
 
     def itervalues(self):
-        for val in super(LazyDict, self).itervalues():
+        for val in six.itervalues(super(LazyDict, self)):
             yield lazy_eval(val)
 
     def iteritems(self):
-        for key, val in super(LazyDict, self).iteritems():
+        for key, val in six.iteritems(super(LazyDict, self)):
             yield key, lazy_eval(val)
 
     def pop(self, key, *args, **kwargs):
@@ -273,7 +276,7 @@ class LazyRecord(object):
 
 def lazysetattr(object, name, func, args, kwargs=None, cache=False):
     if not isinstance(object, LazyRecord):
-        raise TypeError, 'object does not support lazy attributes'
+        raise TypeError('object does not support lazy attributes')
     value = LazyValue(func, args, kwargs=kwargs, cache=cache)
     setattr(object, name, value)
 
@@ -282,7 +285,7 @@ def rmtree(path):
     """Delete a directory tree without crossing fs boundaries"""
     st = os.lstat(path)
     if not stat.S_ISDIR(st.st_mode):
-        raise koji.GenericError, "Not a directory: %s" % path
+        raise koji.GenericError("Not a directory: %s" % path)
     dev = st.st_dev
     dirlist = []
     for dirpath, dirnames, filenames in os.walk(path):
@@ -417,19 +420,19 @@ def setup_rlimits(opts, logger=None):
         logger.warn('Setting resource limit: %s = %r', key, limits)
         try:
             resource.setrlimit(rcode, tuple(limits))
-        except ValueError, e:
+        except ValueError as e:
             logger.error("Unable to set %s: %s", key, e)
 
 class adler32_constructor(object):
 
     #mimicing the hashlib constructors
     def __init__(self, arg=''):
-        self._value = adler32(arg) & 0xffffffffL
+        self._value = adler32(arg) & 0xffffffff
         #the bitwise and works around a bug in some versions of python
         #see: http://bugs.python.org/issue1202
 
     def update(self, arg):
-        self._value = adler32(arg, self._value) & 0xffffffffL
+        self._value = adler32(arg, self._value) & 0xffffffff
 
     def digest(self):
         return self._value
@@ -456,14 +459,14 @@ def tsort(parts):
     parts = parts.copy()
     result = []
     while True:
-        level = set([name for name, deps in parts.iteritems() if not deps])
+        level = set([name for name, deps in six.iteritems(parts) if not deps])
         if not level:
             break
         result.append(level)
-        parts = dict([(name, deps - level) for name, deps in parts.iteritems()
+        parts = dict([(name, deps - level) for name, deps in six.iteritems(parts)
                       if name not in level])
     if parts:
-        raise ValueError, 'total ordering not possible'
+        raise ValueError('total ordering not possible')
     return result
 
 class MavenConfigOptAdapter(object):
@@ -487,7 +490,7 @@ class MavenConfigOptAdapter(object):
             elif name in self.MULTILINE:
                 value = value.splitlines()
             return value
-        raise AttributeError, name
+        raise AttributeError(name)
 
 def maven_opts(values, chain=False, scratch=False):
     """
@@ -512,7 +515,7 @@ def maven_opts(values, chain=False, scratch=False):
     for env in getattr(values, 'envs', []):
         fields = env.split('=', 1)
         if len(fields) != 2:
-            raise ValueError, "Environment variables must be in NAME=VALUE format"
+            raise ValueError("Environment variables must be in NAME=VALUE format")
         envs[fields[0]] = fields[1]
     if envs:
         opts['envs'] = envs
@@ -546,9 +549,9 @@ def parse_maven_params(confs, chain=False, scratch=False):
     """
     if not isinstance(confs, (list, tuple)):
         confs = [confs]
-    config = ConfigParser.ConfigParser()
+    config = six.moves.configparser.ConfigParser()
     for conf in confs:
-        conf_fd = file(conf)
+        conf_fd = open(conf)
         config.readfp(conf_fd)
         conf_fd.close()
     builds = {}
@@ -562,14 +565,14 @@ def parse_maven_params(confs, chain=False, scratch=False):
         elif buildtype == 'wrapper':
             params = wrapper_params(config, package, chain=chain, scratch=scratch)
             if len(params.get('buildrequires')) != 1:
-                raise ValueError, "A wrapper-rpm must depend on exactly one package"
+                raise ValueError("A wrapper-rpm must depend on exactly one package")
         else:
-            raise ValueError, "Unsupported build type: %s" % buildtype
+            raise ValueError("Unsupported build type: %s" % buildtype)
         if not 'scmurl' in params:
-            raise ValueError, "%s is missing the scmurl parameter" % package
+            raise ValueError("%s is missing the scmurl parameter" % package)
         builds[package] = params
     if not builds:
-        raise ValueError, "No sections found in: %s" % ', '.join(confs)
+        raise ValueError("No sections found in: %s" % ', '.join(confs))
     return builds
 
 def parse_maven_param(confs, chain=False, scratch=False, section=None):
@@ -587,9 +590,9 @@ def parse_maven_param(confs, chain=False, scratch=False, section=None):
         if section in builds:
             builds = {section: builds[section]}
         else:
-            raise ValueError, "Section %s does not exist in: %s" % (section, ', '.join(confs))
+            raise ValueError("Section %s does not exist in: %s" % (section, ', '.join(confs)))
     elif len(builds) > 1:
-        raise ValueError, "Multiple sections in: %s, you must specify the section" % ', '.join(confs)
+        raise ValueError("Multiple sections in: %s, you must specify the section" % ', '.join(confs))
     return builds
 
 def parse_maven_chain(confs, scratch=False):
@@ -602,10 +605,10 @@ def parse_maven_chain(confs, scratch=False):
     """
     builds = parse_maven_params(confs, chain=True, scratch=scratch)
     depmap = {}
-    for package, params in builds.items():
+    for package, params in list(builds.items()):
         depmap[package] = set(params.get('buildrequires', []))
     try:
         order = tsort(depmap)
-    except ValueError, e:
-        raise ValueError, 'No possible build order, missing/circular dependencies'
+    except ValueError as e:
+        raise ValueError('No possible build order, missing/circular dependencies')
     return builds
