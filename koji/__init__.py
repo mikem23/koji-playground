@@ -49,15 +49,16 @@ import rpm
 import shutil
 import signal
 import socket
-from .ssl import SSLCommon
+#from .ssl import SSLCommon
 from .ssl import ssl as pyssl
 import struct
 import tempfile
 import time
 import traceback
 import urllib
-import urllib2
-import urlparse
+from six.moves.urllib.request import urlopen
+from six.moves.urllib.parse import urlparse
+from six.moves.urllib.parse import urlsplit
 from . import util
 import six.moves.xmlrpc_client
 import xml.sax
@@ -1435,7 +1436,7 @@ def openRemoteFile(relpath, topurl=None, topdir=None):
     on options"""
     if topurl:
         url = "%s/%s" % (topurl, relpath)
-        src = urllib2.urlopen(url)
+        src = urlopen(url)
         fo = tempfile.TemporaryFile()
         shutil.copyfileobj(src, fo)
         src.close()
@@ -1603,13 +1604,14 @@ class ClientSession(object):
         self.logger = logging.getLogger('koji')
 
     def _setup_connection(self):
-        uri = urlparse.urlsplit(self.baseurl)
-        scheme = uri[0]
-        self._host, _port = urllib.splitport(uri[1])
+        uri = urlsplit(self.baseurl)
+        scheme = uri.scheme
+        self._host = uri.hostname
+        _port = uri.port
         self.explicit_port = bool(_port)
         self._path = uri[2]
         default_port = 80
-        if self.opts.get('certs'):
+        if False and self.opts.get('certs'):
             ctx = SSLCommon.CreateSSLContext(self.opts['certs'])
             cnxOpts = {'ssl_context' : ctx}
             cnxClass = SSLCommon.PlgHTTPSConnection
@@ -1617,8 +1619,8 @@ class ClientSession(object):
         elif scheme == 'https':
             cnxOpts = {}
             if sys.version_info[:3] >= (2, 7, 9):
-                #ctx = pyssl.SSLContext(pyssl.PROTOCOL_SSLv23)
-                ctx = pyssl._create_unverified_context()
+                ctx = pyssl.SSLContext(pyssl.PROTOCOL_SSLv23)
+                #ctx = pyssl._create_unverified_context()
                 # TODO - we should default to verifying where possible
                 cnxOpts['context'] = ctx
             cnxClass = six.moves.http_client.HTTPSConnection
@@ -1865,7 +1867,7 @@ class ClientSession(object):
         for n, v in headers:
             cnx.putheader(n, v)
         cnx.endheaders()
-        cnx.send(request)
+        cnx.send(request.encode('utf8'))
         response = cnx.getresponse()
         try:
             ret = self._read_xmlrpc_response(response, handler)
@@ -1961,9 +1963,9 @@ class ClientSession(object):
                 except Exception as e:
                     self._close_connection()
 
-                    if SSLCommon.is_cert_error(e):
+                    #if SSLCommon.is_cert_error(e):
                         # There's no point in retrying for this
-                        raise
+                    #    raise
 
                     if not self.logged_in:
                         #in the past, non-logged-in sessions did not retry. For compatibility purposes
