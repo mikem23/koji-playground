@@ -1822,7 +1822,17 @@ class ClientSession(object):
         # TODO: honor debug_xmlrpc
         request = request.encode('utf8')
         headers = dict(headers)
-        r = self.rsession.post(handler, headers=headers, data=request, stream=True)
+        callopts = {
+            'headers': headers,
+            'data': request,
+            'stream': True,
+        }
+        cert = self.opts.get('certs', {}).get('peer_ca_cert')
+        if cert:
+            callopts['verify'] = cert
+        #else:
+        #    callopts['verify'] = False
+        r = self.rsession.post(handler, **callopts)
         try:
             ret = self._read_xmlrpc_response(r)
         finally:
