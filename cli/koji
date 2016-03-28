@@ -121,14 +121,45 @@ def arg_filter(arg):
     #handle lists/dicts?
     return arg
 
+categories = {
+    'admin' : 'admin commands',
+    'build' : 'build commands',
+    'search' : 'search commands',
+    'download' : 'download commands',
+    'monitor'  : 'monitor commands',
+    'info' : 'info commands',
+    'bind' : 'bind commands',
+    'misc' : 'miscellaneous commands',
+}
+
+def get_epilog_str(progname=None):
+    if progname is None:
+        progname = os.path.basename(sys.argv[0]) or 'koji'
+    categories_ordered=', '.join(sorted(['all'] + categories.keys()))
+    epilog_str = '''
+Try "%(progname)s --help" for help about global options
+Try "%(progname)s help" to get all available commands
+Try "%(progname)s <command> --help" for help about the options of a particular command
+Try "%(progname)s help <category>" to get commands under a particular category
+Avaliable categories are: %(categories)s
+''' % ({'progname': progname, 'categories': categories_ordered}) 
+    return _(epilog_str)
 
 def get_options():
     """process options from command line and config file"""
 
-    usage = _("%prog [global-options] command [command-options-and-arguments]")
+    common_commands = ['build', 'help', 'download-build',
+                       'latest-pkg', 'search', 'list-targets']
+    usage = _("%%prog [global-options] command [command-options-and-arguments]"
+                "\n\nCommon commands: %s" % ', '.join(sorted(common_commands)))
     parser = OptionParser(usage=usage)
     parser.disable_interspersed_args()
     progname = os.path.basename(sys.argv[0]) or 'koji'
+    parser.__dict__['origin_format_help'] = parser.format_help
+    parser.__dict__['format_help'] = lambda formatter=None: (
+        "%(origin_format_help)s%(epilog)s" % ({
+            'origin_format_help': parser.origin_format_help(formatter),
+            'epilog': get_epilog_str()}))
     parser.add_option("-c", "--config", dest="configFile",
                       help=_("use alternate configuration file"), metavar="FILE")
     parser.add_option("-p", "--profile", default=progname,
@@ -835,7 +866,7 @@ def _running_in_bg():
     return False
 
 def handle_build(options, session, args):
-    "Build a package from source"
+    "[build] Build a package from source"
     usage = _("usage: %prog build [options] target <srpm path or scm url>")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -912,7 +943,7 @@ def handle_build(options, session, args):
 
 def handle_chain_build(options, session, args):
     # XXX - replace handle_build with this, once chain-building has gotten testing
-    "Build one or more packages from source"
+    "[build] Build one or more packages from source"
     usage = _("usage: %prog chain-build [options] target URL [URL2 [:] URL3 [:] URL4 ...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -986,7 +1017,7 @@ def handle_chain_build(options, session, args):
         return watch_tasks(session,[task_id],quiet=options.quiet)
 
 def handle_maven_build(options, session, args):
-    "Build a Maven package from source"
+    "[build] Build a Maven package from source"
     usage = _("usage: %prog maven-build [options] target URL")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -1082,7 +1113,7 @@ def handle_maven_build(options, session, args):
         return watch_tasks(session,[task_id],quiet=options.quiet)
 
 def handle_wrapper_rpm(options, session, args):
-    """Build wrapper rpms for any archives associated with a build."""
+    """[build] Build wrapper rpms for any archives associated with a build."""
     usage = _("usage: %prog wrapper-rpm [options] target build-id|n-v-r URL")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -1148,7 +1179,7 @@ def handle_wrapper_rpm(options, session, args):
         return watch_tasks(session,[task_id],quiet=options.quiet)
 
 def handle_maven_chain(options, session, args):
-    "Run a set of Maven builds in dependency order"
+    "[build] Run a set of Maven builds in dependency order"
     usage = _("usage: %prog maven-chain [options] target config...")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -1200,7 +1231,7 @@ def handle_maven_chain(options, session, args):
         return watch_tasks(session, [task_id], quiet=options.quiet)
 
 def handle_resubmit(options, session, args):
-    """Retry a canceled or failed task, using the same parameter as the original task."""
+    """[build] Retry a canceled or failed task, using the same parameter as the original task."""
     usage = _("usage: %prog resubmit [options] taskID")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -1227,7 +1258,7 @@ def handle_resubmit(options, session, args):
         return watch_tasks(session, [newID], quiet=options.quiet)
 
 def handle_call(options, session, args):
-    "[admin] Execute an arbitrary XML-RPC call"
+    "Execute an arbitrary XML-RPC call"
     usage = _("usage: %prog call [options] name [arg...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -1259,7 +1290,7 @@ def handle_call(options, session, args):
     pprint.pprint(getattr(session, name).__call__(*non_kw, **kw))
 
 def anon_handle_mock_config(options, session, args):
-    "Create a mock config"
+    "[info] Create a mock config"
     usage = _("usage: %prog mock-config [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2150,7 +2181,7 @@ def handle_add_volume(options, session, args):
     print "Added volume %(name)s with id %(id)i" % volinfo
 
 def handle_list_volumes(options, session, args):
-    "List storage volumes"
+    "[info] List storage volumes"
     usage = _("usage: %prog list-volumes")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2522,7 +2553,7 @@ def handle_revoke_cg_access(options, session, args):
 
 
 def anon_handle_latest_build(options, session, args):
-    "Print the latest builds for a tag"
+    "[info] Print the latest builds for a tag"
     usage = _("usage: %prog latest-build [options] tag package [package...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2596,7 +2627,7 @@ def anon_handle_latest_build(options, session, args):
 
 
 def anon_handle_list_api(options, session, args):
-    "Print the list of XML-RPC APIs"
+    "[info] Print the list of XML-RPC APIs"
     usage = _("usage: %prog list-api [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2627,7 +2658,7 @@ def anon_handle_list_api(options, session, args):
             print "  description: %s" % x['doc']
 
 def anon_handle_list_tagged(options, session, args):
-    "List the builds or rpms in a tag"
+    "[info] List the builds or rpms in a tag"
     usage = _("usage: %prog list-tagged [options] tag [package]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2728,7 +2759,7 @@ def anon_handle_list_tagged(options, session, args):
         print line
 
 def anon_handle_list_buildroot(options, session, args):
-    "List the rpms used in or built in a buildroot"
+    "[info] List the rpms used in or built in a buildroot"
     usage = _("usage: %prog list-buildroot [options] buildroot-id")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2758,7 +2789,7 @@ def anon_handle_list_buildroot(options, session, args):
             print nvra
 
 def anon_handle_list_untagged(options, session, args):
-    "List untagged builds"
+    "[info] List untagged builds"
     usage = _("usage: %prog list-untagged [options] [package]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2814,7 +2845,7 @@ def print_group_list_req_package(pkg):
     print "  %(package)s: %(basearchonly)s, %(type)s  [%(tag_name)s]" % pkg
 
 def anon_handle_list_groups(options, session, args):
-    "Print the group listings"
+    "[info] Print the group listings"
     usage = _("usage: %prog list-groups [options] <tag> [group]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2942,7 +2973,7 @@ def handle_unblock_group_req(options, session, args):
     session.groupReqListUnblock(tag, group, req)
 
 def anon_handle_list_hosts(options, session, args):
-    "Print the host listing"
+    "[info] Print the host listing"
     usage = _("usage: %prog list-hosts [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -2997,7 +3028,7 @@ def anon_handle_list_hosts(options, session, args):
         print "%(name)-28s %(enabled)-3s %(ready)-3s %(task_load)4.1f/%(capacity)-3.1f %(arches)-16s %(update)s" % host
 
 def anon_handle_list_pkgs(options, session, args):
-    "Print the package listing for tag or for owner"
+    "[info] Print the package listing for tag or for owner"
     usage = _("usage: %prog list-pkgs [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -3074,7 +3105,7 @@ def anon_handle_list_pkgs(options, session, args):
             print fmt % pkg
 
 def anon_handle_rpminfo(options, session, args):
-    "Print basic information about an RPM"
+    "[info] Print basic information about an RPM"
     usage = _("usage: %prog rpminfo [options] <n-v-r.a> [<n-v-r.a> ...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -3140,7 +3171,7 @@ def anon_handle_rpminfo(options, session, args):
 
 
 def anon_handle_buildinfo(options, session, args):
-    "Print basic information about a build"
+    "[info] Print basic information about a build"
     usage = _("usage: %prog buildinfo [options] <n-v-r> [<n-v-r> ...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -3606,7 +3637,7 @@ def handle_remove_tag(options, session, args):
     session.deleteTag(tag_info['id'])
 
 def anon_handle_list_targets(options, session, args):
-    "List the build targets"
+    "[info] List the build targets"
     usage = _("usage: %prog list-targets [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -3670,7 +3701,7 @@ def _printInheritance(tags, sibdepths=None, reverse=False):
     _printInheritance(tags, sibdepths, reverse)
 
 def anon_handle_list_tag_inheritance(options, session, args):
-    "Print the inheritance information for a tag"
+    "[info] Print the inheritance information for a tag"
     usage = _("usage: %prog list-tag-inheritance [options] <tag>")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -3725,7 +3756,7 @@ def anon_handle_list_tag_inheritance(options, session, args):
     _printInheritance(data, None, opts['reverse'])
 
 def anon_handle_list_tags(options, session, args):
-    "Print the list of tags"
+    "[info] Print the list of tags"
     usage = _("usage: %prog list-tags [options] [pattern]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -3781,7 +3812,7 @@ def anon_handle_list_tags(options, session, args):
             print ''
 
 def anon_handle_list_tag_history(options, session, args):
-    "Print a history of tag operations"
+    "[info] Print a history of tag operations"
     usage = _("usage: %prog list-tag-history [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -4052,7 +4083,7 @@ _table_keys = {
     }
 
 def anon_handle_list_history(options, session, args):
-    "Display historical data"
+    "[info] Display historical data"
     usage = _("usage: %prog list-history [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -4387,7 +4418,7 @@ def _printTaskInfo(session, task_id, level=0, recurse=True, verbose=True):
             _printTaskInfo(session, child['id'], level, verbose=verbose)
 
 def anon_handle_taskinfo(options, session, args):
-    """Show information about a task"""
+    """[info] Show information about a task"""
     usage = _("usage: %prog taskinfo [options] taskID [taskID...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -4405,7 +4436,7 @@ def anon_handle_taskinfo(options, session, args):
         _printTaskInfo(session, task_id, 0, options.recurse, options.verbose)
 
 def anon_handle_taginfo(options, session, args):
-    "Print basic information about a tag"
+    "[info] Print basic information about a tag"
     usage = _("usage: %prog taginfo [options] <tag> [<tag> ...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -4888,7 +4919,7 @@ def handle_remove_tag_inheritance(options, session, args):
     session.setInheritanceData(tag['id'], inheritanceData)
 
 def anon_handle_show_groups(options, session, args):
-    "Show groups data for a tag"
+    "[info] Show groups data for a tag"
     usage = _("usage: %prog show-groups [options] <tag>")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -4911,7 +4942,7 @@ def anon_handle_show_groups(options, session, args):
         pprint.pprint(groups)
 
 def anon_handle_list_external_repos(options, session, args):
-    "List external repos"
+    "[info] List external repos"
     usage = _("usage: %prog list-external-repos [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -5109,7 +5140,7 @@ def handle_remove_external_repo(options, session, args):
 # This handler is for spinning livecd images
 #
 def handle_spin_livecd(options, session, args):
-    """[admin] Create a live CD image given a kickstart file"""
+    """[build] Create a live CD image given a kickstart file"""
 
     # Usage & option parsing.
     usage = _("usage: %prog spin-livecd [options] <name> <version> <target>" +
@@ -5153,7 +5184,7 @@ def handle_spin_livecd(options, session, args):
 # This handler is for spinning appliance images
 #
 def handle_spin_appliance(options, session, args):
-    """[admin] Create an appliance given a kickstart file"""
+    """[build] Create an appliance given a kickstart file"""
 
     # Usage & option parsing
     usage = _("usage: %prog spin-appliance [options] <name> <version> " +
@@ -5206,7 +5237,7 @@ def handle_spin_appliance(options, session, args):
     _build_image(options, task_options, session, args, 'appliance')
 
 def handle_image_build_indirection(options, session, args):
-    """Create a disk image using other disk images via the Indirection plugin"""
+    """[build] Create a disk image using other disk images via the Indirection plugin"""
     usage = _("usage: %prog image-build-indirection [base_image] " +
               "[utility_image] [indirection_build_template]")
     usage += _("\n       %prog image-build --config FILE")
@@ -5350,7 +5381,7 @@ def _build_image_indirection(options, task_opts, session, args):
 
 
 def handle_image_build(options, session, args):
-    """Create a disk image given an install tree"""
+    """[build] Create a disk image given an install tree"""
     formats = ('vmdk', 'qcow', 'qcow2', 'vdi', 'vpc', 'rhevm-ova',
                'vsphere-ova', 'vagrant-virtualbox', 'vagrant-libvirt',
                'vagrant-vmware-fusion', 'docker', 'raw-xz',
@@ -5601,7 +5632,7 @@ def _build_image_oz(options, task_opts, session, args):
         return
 
 def handle_win_build(options, session, args):
-    """Build a Windows package from source"""
+    """[build] Build a Windows package from source"""
     # Usage & option parsing
     usage = _("usage: %prog win-build [options] target URL VM")
     usage += _("\n(Specify the --help global option for a list of other " +
@@ -5695,7 +5726,7 @@ def handle_free_task(options, session, args):
         session.freeTask(task_id)
 
 def handle_cancel(options, session, args):
-    "Cancel tasks and/or builds"
+    "[build] Cancel tasks and/or builds"
     usage = _("usage: %prog cancel [options] <task-id|build> [<task-id|build> ...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -5813,7 +5844,7 @@ def _list_tasks(options, session):
 
 
 def handle_list_tasks(options, session, args):
-    "Print the list of tasks"
+    "[info] Print the list of tasks"
     usage = _("usage: %prog list-tasks [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -5936,7 +5967,7 @@ def handle_set_pkg_owner_global(options, session, args):
             session.packageListSetOwner(entry['tag_id'], entry['package_name'], user['id'])
 
 def anon_handle_watch_task(options, session, args):
-    "Track progress of particular tasks"
+    "[monitor] Track progress of particular tasks"
     usage = _("usage: %prog watch-task [options] <task id> [<task id>...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -5977,7 +6008,7 @@ def anon_handle_watch_task(options, session, args):
     return watch_tasks(session, tasks, quiet=options.quiet)
 
 def anon_handle_watch_logs(options, session, args):
-    "Watch logs in realtime"
+    "[monitor] Watch logs in realtime"
     usage = _("usage: %prog watch-logs [options] <task id> [<task id>...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6024,7 +6055,7 @@ def handle_make_task(opts, session, args):
         return watch_tasks(session, [task_id], quiet=opts.quiet)
 
 def handle_tag_build(opts, session, args):
-    "Apply a tag to one or more builds"
+    "[bind] Apply a tag to one or more builds"
     usage = _("usage: %prog tag-build [options] <tag> <pkg> [<pkg>...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6048,7 +6079,7 @@ def handle_tag_build(opts, session, args):
         return watch_tasks(session,tasks,quiet=opts.quiet)
 
 def handle_move_build(opts, session, args):
-    "'Move' one or more builds between tags"
+    "[bind] 'Move' one or more builds between tags"
     usage = _("usage: %prog move-build [options] <tag1> <tag2> <pkg> [<pkg>...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6094,7 +6125,7 @@ def handle_move_build(opts, session, args):
         return watch_tasks(session, tasks, quiet=opts.quiet)
 
 def handle_untag_build(options, session, args):
-    "Remove a tag from one or more builds"
+    "[bind] Remove a tag from one or more builds"
     usage = _("usage: %prog untag-build [options] <tag> <pkg> [<pkg>...]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6179,7 +6210,7 @@ def handle_unblock_pkg(options, session, args):
         session.packageListUnblock(tag,package)
 
 def anon_handle_download_build(options, session, args):
-    "Download a built package"
+    "[download] Download a built package"
     usage = _("usage: %prog download-build [options] <n-v-r | build_id | package>")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6315,7 +6346,7 @@ def anon_handle_download_build(options, session, args):
 
 
 def anon_handle_download_logs(options, session, args):
-    "Download a logs for package"
+    "[download] Download a logs for package"
 
     FAIL_LOG = "task_failed.log"
     usage = _("usage: %prog download-logs [options] <task-id> [<task-id> ...]")
@@ -6432,7 +6463,7 @@ def anon_handle_download_logs(options, session, args):
 
 
 def anon_handle_download_task(options, session, args):
-    "Download the output of a build task "
+    "[download] Download the output of a build task "
     usage = _("usage: %prog download-task <task_id>")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6508,7 +6539,7 @@ def anon_handle_download_task(options, session, args):
         output_file.close()
 
 def anon_handle_wait_repo(options, session, args):
-    "Wait for a repo to be regenerated"
+    "[monitor] Wait for a repo to be regenerated"
     usage = _("usage: %prog wait-repo [options] <tag>")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
@@ -6646,7 +6677,7 @@ def handle_regen_repo(options, session, args):
         return watch_tasks(session, [task_id], quiet=options.quiet)
 
 def anon_handle_search(options, session, args):
-    "Search the system"
+    "[search] Search the system"
     usage = _("usage: %prog search [options] search_type pattern")
     usage += _('\nAvailable search types: %s') % ', '.join(_search_types)
     usage += _("\n(Specify the --help global option for a list of other help options)")
@@ -6671,7 +6702,7 @@ def anon_handle_search(options, session, args):
         print row['name']
 
 def handle_moshimoshi(options, session, args):
-    "Introduce yourself"
+    "[misc] Introduce yourself"
     usage = _("usage: %prog moshimoshi [options]")
     parser = OptionParser(usage=usage)
     (opts, args) = parser.parse_args(args)
@@ -6765,16 +6796,38 @@ def handle_runroot(options, session, args):
 
 
 def handle_help(options, session, args):
-    "List available commands"
+    "[info] List available commands"
     usage = _("usage: %prog help [options]")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
-    parser.add_option("--admin", action="store_true", help=_("show admin commands"))
+    for k in categories.keys():
+        parser.add_option("--%s" % k, action="store_true", default=False, help=_("show %s commands" % k))
+
     (options, args) = parser.parse_args(args)
-    list_commands(show_admin=options.admin)
+
+    categories_choosen = [k for k in categories if options.ensure_value(k, True)]
+    if args:
+        non_available_categories = [c for c in args if c not in categories.keys()]
+        if non_available_categories:
+            non_available_categories_str = ", ".join(non_available_categories)
+            if len(non_available_categories) > 1:
+                partial_error_str = "are not available categories"
+            else:
+                partial_error_str = "is not available category"
+            error_str = ": ".join([non_available_categories_str, partial_error_str])
+            raise optparse.OptParseError(error_str)
+        categories_choosen += [
+                  c for c in args if c not in categories_choosen]
+
+    if not categories_choosen:
+        categories_choosen = ['all']
+    list_commands(categories_choosen)
 
 
-def list_commands(show_admin=False):
+def list_commands(categories_choosen=None):
+    if categories_choosen is None or "all" in categories_choosen:
+        categories_choosen = categories.keys()
+    categories_choosen.sort()
     handlers = []
     for name,value in globals().items():
         if name.startswith('handle_'):
@@ -6787,17 +6840,17 @@ def list_commands(show_admin=False):
             handlers.append((alias,value))
     handlers.sort()
     print _("Available commands:")
-    for alias,handler in handlers:
-        desc = handler.__doc__
-        if desc.startswith('[admin] '):
-            if not show_admin:
+    for category in categories_choosen:
+        print _("\n%s:" % categories[category])
+        for alias,handler in handlers:
+            desc = handler.__doc__
+            if desc.startswith('[%s] ' % category):
+                desc = desc[len('[%s] ' % category):]
+            elif category != 'misc' or desc.startswith('['):
                 continue
-            desc = desc[8:]
-        print "        %-25s %s" % (alias, desc)
-    progname = os.path.basename(sys.argv[0]) or 'koji'
-    print _('(Type "%s --help" for help about global options') % progname
-    print _(' or "%s <command> --help" for help about a particular command\'s options') % progname
-    print _(' or "%s help --admin" for help about privileged administrative commands.)') % progname
+            print "        %-25s %s" % (alias, desc)
+
+    print("%s" % get_epilog_str().rstrip("\n"))
 
 def error(msg=None, code=1):
     if msg:
