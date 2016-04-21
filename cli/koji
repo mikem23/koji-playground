@@ -141,7 +141,7 @@ Try "%(progname)s --help" for help about global options
 Try "%(progname)s help" to get all available commands
 Try "%(progname)s <command> --help" for help about the options of a particular command
 Try "%(progname)s help <category>" to get commands under a particular category
-Avaliable categories are: %(categories)s
+Available categories are: %(categories)s
 ''' % ({'progname': progname, 'categories': categories_ordered}) 
     return _(epilog_str)
 
@@ -6797,37 +6797,35 @@ def handle_runroot(options, session, args):
 
 def handle_help(options, session, args):
     "[info] List available commands"
-    usage = _("usage: %prog help [options]")
+    usage = _("usage: %prog help <category> ...")
     usage += _("\n(Specify the --help global option for a list of other help options)")
     parser = OptionParser(usage=usage)
-    for k in categories.keys():
-        parser.add_option("--%s" % k, action="store_true", default=False, help=_("show %s commands" % k))
+    # the --admin opt is for backwards compatibility. It is equivalent to: koji help admin
+    parser.add_option("--admin", action="store_true", help=optparse.SUPPRESS_HELP)
 
     (options, args) = parser.parse_args(args)
 
-    categories_choosen = [k for k in categories if options.ensure_value(k, True)]
-    if args:
-        non_available_categories = [c for c in args if c not in categories.keys()]
-        if non_available_categories:
-            non_available_categories_str = ", ".join(non_available_categories)
-            if len(non_available_categories) > 1:
-                partial_error_str = "are not available categories"
-            else:
-                partial_error_str = "is not available category"
-            error_str = ": ".join([non_available_categories_str, partial_error_str])
-            raise optparse.OptParseError(error_str)
-        categories_choosen += [
-                  c for c in args if c not in categories_choosen]
+    chosen = set(args)
+    if options.admin:
+        chosen.add('admin')
+    avail = set(categories.keys() + ['all'])
+    unavail = chosen - avail
+    for arg in unavail:
+        print "No such help category: %s" % arg
 
-    if not categories_choosen:
-        categories_choosen = ['all']
-    list_commands(categories_choosen)
+    if not chosen:
+        list_commands()
+    else:
+        list_commands(chosen)
 
 
-def list_commands(categories_choosen=None):
-    if categories_choosen is None or "all" in categories_choosen:
-        categories_choosen = categories.keys()
-    categories_choosen.sort()
+def list_commands(categories_chosen=None):
+    if categories_chosen is None or "all" in categories_chosen:
+        categories_chosen = categories.keys()
+    else:
+        # copy list since we're about to modify it
+        categories_chosen = list(categories_chosen)
+    categories_chosen.sort()
     handlers = []
     for name,value in globals().items():
         if name.startswith('handle_'):
@@ -6840,7 +6838,7 @@ def list_commands(categories_choosen=None):
             handlers.append((alias,value))
     handlers.sort()
     print _("Available commands:")
-    for category in categories_choosen:
+    for category in categories_chosen:
         print _("\n%s:" % categories[category])
         for alias,handler in handlers:
             desc = handler.__doc__
