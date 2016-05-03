@@ -184,6 +184,12 @@ AUTHTYPE_NORMAL = 0
 AUTHTYPE_KERB = 1
 AUTHTYPE_SSL = 2
 
+# authtype keys - used in CLI `--authtype` parameter
+AUTHTYPE_KEY_NORMAL = "password"
+AUTHTYPE_KEY_KERB = "kerberos"
+AUTHTYPE_KEY_SSL = "ssl"
+AUTHTYPE_KEY_NOAUTH = "noauth"
+
 #dependency types
 DEP_REQUIRE = 0
 DEP_PROVIDE = 1
@@ -2429,6 +2435,207 @@ class ClientSession(object):
             raise GenericError, 'downloadTaskOutput() may not be called during a multicall'
         result = self.callMethod('downloadTaskOutput', taskID, fileName, offset, size)
         return base64.decodestring(result)
+
+
+class ClientAuthHandler(object):
+    """
+    Base class for Client which handle auth testing and performing.
+    """
+
+    def __init__(self, authtype):
+        self.authtype = authtype
+        self.info = {}
+
+    def login(self, session=None, options=None):
+        """
+        login *interface*, skip authentication by default
+        return: True, if success, otherwise False. Default: True without any ops
+        """
+        return True
+
+    def test(self, options=None):
+        """
+        If no authtype specified, this method will be invoked by `build_seq`,
+        to find out if this handler will be added in
+        """
+        return False
+
+    def build_debug_info(self, options, error=None):
+        if error:
+            self.info["error"] = _('%s: %s' % (error.__class__.__name__, str(error).strip()))
+        return self.info
+
+
+class NoAuthHandler(ClientAuthHandler):
+    """ No Authentication Handler """
+
+    def test(self, options=None):
+        return options.noauth
+
+
+class SSLAuthHandler(ClientAuthHandler):
+    """ SSL Authentication Handler """
+
+    def login(self, session=None, options=None):
+        # authenticate using SSL client cert
+        return session.ssl_login(options.cert, None, options.serverca, proxyuser=options.runas)
+
+    def test(self, options=None):
+        return True
+
+    def build_debug_info(self, options, error):
+        self.info = {"cert": options.cert, "serverca": options.serverca, "proxyuser": options.runas}
+        super(SSLAuthHandler, self).build_debug_info(options, error)
+        return self.info
+
+
+class PasswordAuthHandler(ClientAuthHandler):
+    """ Normal user/pwd Authentication Handler """
+
+    def login(self, session=None, options=None):
+        # authenticate using user/password
+        return session.login()
+
+    def test(self, options=None):
+        return options.user
+
+    def build_debug_info(self, options, error):
+        self.info = {"user": options.user}
+        super(PasswordAuthHandler, self).build_debug_info(options, error)
+        return self.info
+
+
+class KerberosAuthHandler(ClientAuthHandler):
+    """ Kerberos Authentication Handler """
+
+    def login(self, session=None, options=None):
+        # authenticate via Kerberos
+        try:
+            if options.keytab and options.principal:
+                return session.krb_login(principal=options.principal, keytab=options.keytab, proxyuser=options.runas)
+            else:
+                return session.krb_login(proxyuser=options.runas)
+        except krbV.Krb5Error, e:
+            raise AuthError, "Kerberos authentication failed: %s (%s)" % (e.args[1], e.args[0])
+        except socket.error, e:
+            raise AuthError, "Could not connect to Kerberos authentication service: %s" % e.args[1]
+
+    def test(self, options=None):
+        return self._has_krb_creds()
+
+    def build_debug_info(self, options, error):
+        self.info = {"keytab": options.keytab, "principal": options.principal, "proxyuser": options.runas}
+        super(KerberosAuthHandler, self).build_debug_info(options, error)
+        return self.info
+
+    def _has_krb_creds(self):
+        if not sys.modules.has_key('krbV'):
+            return False
+        try:
+            ctx = krbV.default_context()
+            ccache = ctx.default_ccache()
+            princ = ccache.principal()
+            return True
+        except krbV.Krb5Error:
+            return False
+
+
+class DefaultAuthHandler(ClientAuthHandler):
+    """
+    Default Authentication Handler
+    """
+
+    def __init__(self, options):
+        self.handler_seq = _build_auth_handler_seq(options)
+        if not self.handler_seq:
+            raise AuthError, "Unable to log in, no authentication methods available."
+        self.infos = []
+
+    def login(self, session=None, options=None):
+        """ Execute handler one by one """
+        for (authtype, handler) in self.handler_seq:
+            try:
+                if handler.login(session=session, options=options):
+                    self.authtype = handler.authtype
+                    return True
+                else:
+                    self.infos.append((handler.authtype, handler.build_debug_info(options)))
+            except Exception, e:
+                self.infos.append((handler.authtype, handler.build_debug_info(options, e)))
+        raise AuthError, self.build_debug_msg(session, options)
+
+    def build_debug_msg(self, session, options):
+        trace = ""
+        for i, (key, info) in enumerate(self.infos):
+            trace += "    - [%d] Bad Authentication via %s:\n" % (i, key)
+            for name, value in info.iteritems():
+                if not (value is None or value.strip()):
+                    value = '<EMPTYSTRING>'
+                trace += "        %-15s %s\n" % (name, value)
+        self.info = """You are using the hub at %s
+but unable to log in, no available authentication method succeeds.
+
+Please check this trace that shows what auth methods you attempted with the errors and parameters.
+    [TRACE]:
+%s
+
+(Your authentication parameters can be specified in command line or in config files.
+Type "koji --help" for help about global options,
+or check the "[%s]" section in your config files;
+or use "koji --authtype=noauth <command> ..." to skip login phase.
+    --authtype=AUTHTYPE   force use of a type of authentication, options:
+                          noauth, ssl, password, or kerberos)
+""" % (session.baseurl, trace, options.profile)
+        return self.info
+
+
+_handler_mapping = {
+    AUTHTYPE_KEY_NOAUTH: NoAuthHandler(AUTHTYPE_KEY_NOAUTH),
+    AUTHTYPE_KEY_SSL: SSLAuthHandler(AUTHTYPE_KEY_SSL),
+    AUTHTYPE_KEY_NORMAL: PasswordAuthHandler(AUTHTYPE_KEY_NORMAL),
+    AUTHTYPE_KEY_KERB: KerberosAuthHandler(AUTHTYPE_KEY_KERB)
+}
+
+
+def _get_auth_handler_pairs(keys, test=False, options=None):
+    pairs = []
+    for key in keys if not isinstance(keys, basestring) else [keys]:
+        try:
+            pairs.append((key, _handler_mapping[key]))
+        except:
+            raise AuthError, "authtype: %s is not supported" % key
+    if test:
+        return [(k, v) for (k, v) in pairs if v.test(options=options)]
+    return pairs
+
+
+def create_auth_handler(options):
+    """
+    Create Auth Handler
+    if options.authtype is None, return
+        DefaultAuthHandler's instance to wrap the implementation of the under ones
+    if options.authtype is available (noauth, ssl, password, or kerberos), return
+        corresponding AuthHandler instance stored in `_handler_mapping`
+    otherwise, throw `AuthError`
+    """
+    if options.authtype:
+        return _build_auth_handler_seq(options)[0][1]
+    return DefaultAuthHandler(options)
+
+
+def _build_auth_handler_seq(options):
+    """
+    Build sequence of AuthHandler.
+    If options.authtype is specified, return its handler,
+    otherwise return a series of available handlers
+    """
+    if options.authtype:
+        return _get_auth_handler_pairs(options.authtype, options=options)
+    else:
+        # the order is specified here
+        return _get_auth_handler_pairs([AUTHTYPE_KEY_NOAUTH, AUTHTYPE_KEY_SSL, AUTHTYPE_KEY_NORMAL, AUTHTYPE_KEY_KERB],
+                                       test=True, options=options)
+
 
 class DBHandler(logging.Handler):
     """
