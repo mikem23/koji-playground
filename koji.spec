@@ -28,6 +28,7 @@ BuildArch: noarch
 Requires: python-krbV >= 1.0.13
 Requires: rpm-python
 Requires: pyOpenSSL
+Requires: python-requests
 Requires: python-urlgrabber
 BuildRequires: python
 %if %{use_systemd}
