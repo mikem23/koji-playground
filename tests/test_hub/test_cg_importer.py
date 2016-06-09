@@ -20,8 +20,6 @@ class TestCGImporter(unittest.TestCase):
             shutil.rmtree(self.TMP_PATH)
 
     def test_basic_instantiation(self):
-        # TODO -- this doesn't make sense.  A query with no arguments should
-        # probably raise an exception saying "this doesn't make sense."
         kojihub.CG_Importer()  # No exception!
 
     def test_get_metadata_is_instance(self):
