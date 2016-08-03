@@ -29,6 +29,15 @@
       <th>Source</th><td>$build['source']</td>
     </tr>
     #end if
+    #if 'namespace' in $build
+    <tr>
+      #if $build.namespace is None
+      <th>Namespace</th><td>NULL</td>
+      #else
+      <th>Namespace</th><td>$build.namespace</td>
+      #end if
+    </tr>
+    #end if
     #if 'maven' in $typeinfo
     <tr>
       <th>Maven&nbsp;groupId</th><td>$typeinfo.maven.group_id</td>

@@ -6,6 +6,9 @@ BEGIN;
 SELECT 'About to DELETE ALL DATA in koji database' as WARNING;
 SELECT pg_sleep(5);
 
+-- to generate these table drops:
+-- grep -i '^create table' schema.sql | awk '{printf("DROP TABLE %s;\n", $3)}' | tac
+
 DROP TABLE IF EXISTS win_archives;
 DROP TABLE IF EXISTS buildroot_archives;
 DROP TABLE IF EXISTS image_archive_listing;

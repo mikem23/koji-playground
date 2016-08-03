@@ -366,6 +366,15 @@ class LiveMediaError(GenericError):
     """Raised when LiveMedia Image creation fails"""
     faultCode = 1022
 
+class NoMatchError(GenericError):
+    """Raised when a given value does not match known data, but should"""
+    faultCode = 1023
+
+class MultipleValueError(GenericError):
+    """Raised when a query expects a single value and gets more than one"""
+    faultCode = 1024
+
+
 class MultiCallInProgress(object):
     """
     Placeholder class to be returned by method calls when in the process of
@@ -930,23 +939,33 @@ def get_header_fields(X, fields, src_arch=False):
     return ret
 
 def parse_NVR(nvr):
-    """split N-V-R into dictionary of data"""
+    """Parse a build identifier string
+
+    Originally this was simply N-V-R, but now things are more complicated
+    Recognized formats:
+        N-V-R
+        E:N-V-R
+        NS::N-V-R
+        NS::E:N-V-R
+    """
     ret = {}
-    p2 = nvr.rfind("-", 0)
-    if p2 == -1 or p2 == len(nvr) - 1:
+    parts = nvr.rsplit('-', 2)
+    if len(parts) != 3:
         raise GenericError("invalid format: %s" % nvr)
-    p1 = nvr.rfind("-", 0, p2)
-    if p1 == -1 or p1 == p2 - 1:
-        raise GenericError("invalid format: %s" % nvr)
-    ret['release'] = nvr[p2+1:]
-    ret['version'] = nvr[p1+1:p2]
-    ret['name'] = nvr[:p1]
-    epochIndex = ret['name'].find(':')
-    if epochIndex == -1:
-        ret['epoch'] = ''
+    ret['release'] = parts[2]
+    ret['version'] = parts[1]
+    head = parts[0]
+    parts = head.split('::', 1)
+    if len(parts) == 2:
+        ret['namespace'] = parts[0]
+        head = parts[1]
+    parts = head.split(':', 1)
+    if len(parts) == 2:
+        ret['epoch'] = parts[0]
+        ret['name'] = parts[1]
     else:
-        ret['epoch'] = ret['name'][:epochIndex]
-        ret['name'] = ret['name'][epochIndex + 1:]
+        ret['epoch'] = ''
+        ret['name'] = head
     return ret
 
 def parse_NVRA(nvra):
@@ -1775,9 +1794,29 @@ class PathInfo(object):
         #else
         return self.topdir + ("/vol/%s" % volume)
 
+    def oldbuild(self, build):
+        """Return the (old style) directory where a build belongs"""
+        return self.volumedir(build.get('volume_name')) + ("/packages/%(name)s/%(version)s/%(release)s" % build)
+
     def build(self, build):
         """Return the directory where a build belongs"""
-        return self.volumedir(build.get('volume_name')) + ("/packages/%(name)s/%(version)s/%(release)s" % build)
+        if 'namespace' not in build and 'namespace_id' not in build:
+            # compat mode for older hub
+            return self.oldbuild(build)
+        elif build.get('namespace_id') == 0 or build.get('namespace') == 'DEFAULT':
+            # to ease migration we report the old path for the default namespace
+            return self.oldbuild(build)
+        else:
+            return self.newbuild(build)
+
+    def newbuild(self, build):
+        parts = [self.volumedir(build.get('volume_name')), 'builds']
+        # split the build id for manageable directory sizes
+        b_id = str(build['id'])
+        n_parts = [b_id[i:i+3] for i in range(0,len(b_id),3)]
+        parts.extend(n_parts)
+        parts.append('b')  # ??
+        return '/'.join(parts)
 
     def mavenbuild(self, build):
         """Return the directory where the Maven build exists in the global store (/mnt/koji/packages)"""
