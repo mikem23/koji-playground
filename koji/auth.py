@@ -24,6 +24,8 @@ import string
 import random
 import base64
 import krbV
+import gssapi
+import os
 import koji
 import cgi      #for parse_qs
 from context import context
@@ -285,6 +287,60 @@ class Session(object):
         context.cnx.commit()
         return sinfo
 
+    def _krbProcess(self, cprinc, proxyuser):
+        # Successfully authenticated via Kerberos, now log in
+        if proxyuser:
+            proxyprincs = [princ.strip() for princ in context.opts.get('ProxyPrincipals', '').split(',')]
+            if cprinc in proxyprincs:
+                login_principal = proxyuser
+            else:
+                raise koji.AuthError, \
+                      'Kerberos principal %s is not authorized to log in other users' % cprinc
+        else:
+            login_principal = cprinc
+        user_id = self.getUserIdFromKerberos(login_principal)
+        if not user_id:
+            if context.opts.get('LoginCreatesUser'):
+                user_id = self.createUserFromKerberos(login_principal)
+            else:
+                raise koji.AuthError, 'Unknown Kerberos principal: %s' % login_principal
+
+        self.checkLoginAllowed(user_id)
+
+        hostip = context.environ['REMOTE_ADDR']
+        #XXX - REMOTE_ADDR not promised by wsgi spec
+        if hostip == '127.0.0.1':
+            hostip = socket.gethostbyname(socket.gethostname())
+
+        sinfo = self.createSession(user_id, hostip, koji.AUTHTYPE_KERB)
+        return '%(session-id)s %(session-key)s' % sinfo
+
+    def gssapiLogin(self, krb_req, proxyuser=None):
+        """Authenticate the user using the base64-encoded
+        gssapi initial step. If proxyuser is not None,
+        log in that user instead of the user associated with the
+        kerberos principal. The principal must be an authorized
+        "proxy_principal" in the server config."""
+        if self.logged_in:
+            raise koji.AuthError, "Already logged in"
+
+        if not (context.opts.get('AuthPrincipal') and context.opts.get('AuthKeytab')):
+            raise koji.AuthError, 'not configured for Kerberos authentication'
+
+        conninfo = self.getConnInfo()
+        os.environ['KRB5_KTNAME'] = context.opts.get('AuthKeytab')
+        r = gssapi.SecurityContext()
+        req = base64.decodestring(krb_req)
+        rep = r.step(req)
+        rep_enc = base64.encodestring(rep)
+        cprinc = str(r.initiator_name)
+
+        sinfo = self._krbProcess(cprinc, proxyuser)
+        sinfo_priv = r.encrypt(sinfo)
+        sinfo_enc = base64.encodestring(sinfo_priv)
+
+        return (rep_enc, sinfo_enc, conninfo)
+
     def krbLogin(self, krb_req, proxyuser=None):
         """Authenticate the user using the base64-encoded
         AP_REQ message in krb_req.  If proxyuser is not None,
@@ -311,40 +367,15 @@ class Session(object):
         ac, opts, sprinc, ccreds = ctx.rd_req(req, server=srvprinc, keytab=srvkt,
                                               auth_context=ac,
                                               options=krbV.AP_OPTS_MUTUAL_REQUIRED)
-        cprinc = ccreds[2]
-
-        # Successfully authenticated via Kerberos, now log in
-        if proxyuser:
-            proxyprincs = [princ.strip() for princ in context.opts.get('ProxyPrincipals', '').split(',')]
-            if cprinc.name in proxyprincs:
-                login_principal = proxyuser
-            else:
-                raise koji.AuthError, \
-                      'Kerberos principal %s is not authorized to log in other users' % cprinc.name
-        else:
-            login_principal = cprinc.name
-        user_id = self.getUserIdFromKerberos(login_principal)
-        if not user_id:
-            if context.opts.get('LoginCreatesUser'):
-                user_id = self.createUserFromKerberos(login_principal)
-            else:
-                raise koji.AuthError, 'Unknown Kerberos principal: %s' % login_principal
-
-        self.checkLoginAllowed(user_id)
-
-        hostip = context.environ['REMOTE_ADDR']
-        #XXX - REMOTE_ADDR not promised by wsgi spec
-        if hostip == '127.0.0.1':
-            hostip = socket.gethostbyname(socket.gethostname())
-
-        sinfo = self.createSession(user_id, hostip, koji.AUTHTYPE_KERB)
+        cprinc = ccreds[2].name
+        rep = ctx.mk_rep(auth_context=ac)
 
         # encode the reply
-        rep = ctx.mk_rep(auth_context=ac)
         rep_enc = base64.encodestring(rep)
 
         # encrypt and encode the login info
-        sinfo_priv = ac.mk_priv('%(session-id)s %(session-key)s' % sinfo)
+        sinfo = self._krbProcess(cprinc, proxyuser)
+        sinfo_priv = ac.mk_priv(sinfo)
         sinfo_enc = base64.encodestring(sinfo_priv)
 
         return (rep_enc, sinfo_enc, conninfo)
@@ -692,6 +723,9 @@ def get_user_data(user_id):
 
 def login(*args, **opts):
     return context.session.login(*args, **opts)
+
+def gssapiLogin(*args, **opts):
+    return context.session.gssapiLogin(*args, **opts)
 
 def krbLogin(*args, **opts):
     return context.session.krbLogin(*args, **opts)

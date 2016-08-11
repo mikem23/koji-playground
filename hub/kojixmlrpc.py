@@ -285,12 +285,12 @@ class ModXMLRPCRequestHandler(object):
                 context.session.validate()
             except koji.AuthLockError:
                 #might be ok, depending on method
-                if context.method not in ('exclusiveSession', 'login', 'krbLogin', 'logout'):
+                if context.method not in ('exclusiveSession', 'login', 'gssapiLogin', 'krbLogin', 'logout'):
                     raise
 
     def enforce_lockout(self):
         if context.opts.get('LockOut') and \
-            context.method not in ('login', 'krbLogin', 'sslLogin', 'logout') and \
+            context.method not in ('login', 'gssapiLogin', 'krbLogin', 'sslLogin', 'logout') and \
             not context.session.hasPerm('admin'):
             raise koji.ServerOffline, "Server disabled for maintenance"
 
@@ -796,6 +796,7 @@ def get_registry(opts, plugins):
     registry.register_instance(functions)
     registry.register_module(hostFunctions, "host")
     registry.register_function(koji.auth.login)
+    registry.register_function(koji.auth.gssapiLogin)
     registry.register_function(koji.auth.krbLogin)
     registry.register_function(koji.auth.sslLogin)
     registry.register_function(koji.auth.logout)
