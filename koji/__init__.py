@@ -23,10 +23,16 @@
 
 import sys
 try:
+    import gssapi
+except ImportError:  # pragma: no cover
+    gssapi = None
+try:
     import krbV
 except ImportError:  # pragma: no cover
-    sys.stderr.write("Warning: Could not install krbV module. Kerberos support will be disabled.\n")
-    sys.stderr.flush()
+    krbV = None
+    if not gssapi:
+        sys.stderr.write("Warning: Could not install krbV or gssapi module. Kerberos support will be disabled.\n")
+        sys.stderr.flush()
 import base64
 import datetime
 import ConfigParser
@@ -1910,21 +1916,21 @@ class ClientSession(object):
         sinfo = self.callMethod('subsession')
         return type(self)(self.baseurl, self.opts, sinfo)
 
-    def krb_login(self, principal=None, keytab=None, ccache=None, proxyuser=None):
-        """Log in using Kerberos.  If principal is not None and keytab is
-        not None, then get credentials for the given principal from the given keytab.
-        If both are None, authenticate using existing local credentials (as obtained
-        from kinit).  ccache is the absolute path to use for the credential cache. If
-        not specified, the default ccache will be used.  If proxyuser is specified,
-        log in the given user instead of the user associated with the Kerberos
-        principal.  The principal must be in the "ProxyPrincipals" list on
-        the server side."""
+    def krb_gssapi_login(self, principal, keytab, ccache, proxyuser):
+        n = gssapi.Name('%s@%s' % (self.opts.get('krbservice', 'host'),
+                                   self._krbServername()),
+                        gssapi.NameType.hostbased_service)
+        r = gssapi.SecurityContext(name=n, flags=[gssapi.RequirementFlag.mutual_authentication,
+            gssapi.RequirementFlag.replay_detection, gssapi.RequirementFlag.out_of_sequence_detection])
+        req_enc = base64.encodestring(r.step())
+        (rep_enc, sinfo_enc, addrinfo) = self.callMethod('gssapiLogin', req_enc, proxyuser)
+        rep = base64.decodestring(rep_enc)
+        r.step(rep)
+        sinfo_priv = base64.decodestring(sinfo_enc)
+        sinfo_str = r.decrypt(sinfo_priv)
+        return sinfo_str
 
-        if not krbV:
-            raise exceptions.ImportError(
-                "Please install python-krbV to use kerberos."
-            )
-
+    def krb_krbV_login(self, principal, keytab, ccache, proxyuser):
         ctx = krbV.default_context()
 
         if ccache != None:
@@ -1944,7 +1950,7 @@ class ClientSession(object):
             # We're trying to log ourself in.  Connect using existing credentials.
             cprinc = ccache.principal()
 
-        sprinc = krbV.Principal(name=self._serverPrincipal(cprinc), context=ctx)
+        sprinc = krbV.Principal(name=self._serverPrincipal(cprinc.realm), context=ctx)
 
         ac = krbV.AuthContext(context=ctx)
         ac.flags = krbV.KRB5_AUTH_CONTEXT_DO_SEQUENCE|krbV.KRB5_AUTH_CONTEXT_DO_TIME
@@ -1972,6 +1978,33 @@ class ClientSession(object):
         # decode and decrypt the login info
         sinfo_priv = base64.decodestring(sinfo_enc)
         sinfo_str = ac.rd_priv(sinfo_priv)
+        return sinfo_str
+
+    def _krb_login_methods(self, principal, keytab, ccache, proxyuser):
+        methods = xmlrpclib.ServerProxy('http://%s%s' %
+                                        (self._host, self._path)).system.listMethods()
+
+        if gssapi and 'gssapiLogin' in methods:
+            return self.krb_gssapi_login(principal, keytab, ccache, proxyuser)
+
+        if krbV:
+            return self.krb_krbV_login(principal, keytab, ccache, proxyuser)
+
+    def krb_login(self, principal=None, keytab=None, ccache=None, proxyuser=None):
+        """Log in using Kerberos.  If principal is not None and keytab is
+        not None, then get credentials for the given principal from the given keytab.
+        If both are None, authenticate using existing local credentials (as obtained
+        from kinit).  ccache is the absolute path to use for the credential cache. If
+        not specified, the default ccache will be used.  If proxyuser is specified,
+        log in the given user instead of the user associated with the Kerberos
+        principal.  The principal must be in the "ProxyPrincipals" list on
+        the server side."""
+
+        if not krbV and not gssapi:
+            raise exceptions.ImportError(
+                "Please install either python-gssapi or python-krbV to use kerberos."
+            )
+        sinfo_str = self._krb_login_methods(principal, keytab, ccache, proxyuser)
         sinfo = dict(zip(['session-id', 'session-key'], sinfo_str.split()))
 
         if not sinfo:
@@ -1982,17 +2015,19 @@ class ClientSession(object):
         self.authtype = AUTHTYPE_KERB
         return True
 
-    def _serverPrincipal(self, cprinc):
+    def _krbServername(self):
+        if self.opts.get('krb_rdns', True):
+            return socket.getfqdn(self._host)
+        else:
+            return self._host
+
+    def _serverPrincipal(self, realm):
         """Get the Kerberos principal of the server we're connecting
         to, based on baseurl."""
-        if self.opts.get('krb_rdns', True):
-            servername = socket.getfqdn(self._host)
-        else:
-            servername = self._host
+        servername = self._krbServername()
         #portspec = servername.find(':')
         #if portspec != -1:
         #    servername = servername[:portspec]
-        realm = cprinc.realm
         service = self.opts.get('krbservice', 'host')
 
         return '%s/%s@%s' % (service, servername, realm)
