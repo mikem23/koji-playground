@@ -6,6 +6,13 @@ import mock
 import koji
 
 
+class ClientSession(koji.ClientSession):
+    """Override __del__ method, which causes stalls on some test failures"""
+
+    def __del__(self):
+        pass
+
+
 class KrbVTestCase(unittest.TestCase):
 
     @mock.patch('koji.krbV', new=None)
@@ -15,7 +22,7 @@ class KrbVTestCase(unittest.TestCase):
         """ Test that when krb libs are absent, we behave rationally. """
         self.assertEquals(koji.krbV, None)
         self.assertEquals(koji.gssapi, None)
-        session = koji.ClientSession('whatever')
+        session = ClientSession('whatever')
         with self.assertRaises(ImportError):
             session.krb_login()
 
@@ -36,7 +43,7 @@ class KrbVTestCase(unittest.TestCase):
 
         with mock.patch('koji.gssapi', new=True):
             krb_gssapi_login.return_value = sinfo_str
-            session = koji.ClientSession('whatever')
+            session = ClientSession('whatever')
             session.krb_login(*login_args)
             krb_krbV_login.assert_not_called()
             krb_gssapi_login.assert_called_with(*login_args)
@@ -47,7 +54,7 @@ class KrbVTestCase(unittest.TestCase):
 
         with mock.patch('koji.krbV', new=True):
             krb_krbV_login.return_value = sinfo_str
-            session = koji.ClientSession('whatever')
+            session = ClientSession('whatever')
             session.krb_login(*login_args)
             krb_gssapi_login.assert_not_called()
             krb_krbV_login.assert_called_with(*login_args)
