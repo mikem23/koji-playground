@@ -389,13 +389,13 @@ $value
       <th>Result</th>
       <td>
       #if $abbr_result_text
-        <a href="#" collapse" id="toggle-result" style="display: none;">Show complete results</a>
         <div id="abbr-result">
         $abbr_result_text
         </div>
         <div id="full-result">
         $full_result_text
         </div>
+        <a href="#" id="toggle-result" style="display: none;">Show complete results</a>
         #else
          <div id="result">
         $full_result_text
