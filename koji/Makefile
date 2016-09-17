@@ -1,4 +1,4 @@
-SUBDIRS = 
+SUBDIRS = ssl
 
 PYTHON=python
 PACKAGE = $(shell basename `pwd`)
