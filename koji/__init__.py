@@ -1797,17 +1797,20 @@ class ClientSession(object):
         self.baseurl = baseurl
         self.opts = opts
         self._connection = None
-        #self._setup_connection()
+        self._setup_connection()
         self.authtype = None
         self.setSession(sinfo)
         self.multicall = False
         self._calls = []
         self.logger = logging.getLogger('koji')
-        self.rsession = requests.Session()
         self.opts.setdefault('timeout',  60 * 60 * 12)
 
 
     def _setup_connection(self):
+        if self.opts.get('use_requests', True):
+            self.rsession = requests.Session()
+            return
+        # otherwise use the old way
         uri = urlparse.urlsplit(self.baseurl)
         scheme = uri[0]
         self._host, _port = urllib.splitport(uri[1])
@@ -1856,7 +1859,7 @@ class ClientSession(object):
             self.logged_in = False
             self.callnum = None
             # do we need to do anything else here?
-            #self._setup_connection()
+            self._setup_connection()
             self.authtype = None
         else:
             self.logged_in = True
