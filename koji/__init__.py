@@ -2099,6 +2099,22 @@ class ClientSession(object):
             r.close()
         return ret
 
+    def _get_connection(self):
+        key = (self._cnxClass, self._host, self._port)
+        if self._connection and self.opts.get('keepalive'):
+            if key == self._connection[0]:
+                cnx = self._connection[1]
+                if getattr(cnx, 'sock', None):
+                    return cnx
+        cnx = self._cnxClass(self._host, self._port, **self._cnxOpts)
+        self._connection = (key, cnx)
+        if self._timeout_compat:
+            # in python < 2.6 httplib does not support the timeout option
+            # but socket supports it since 2.3
+            cnx.connect()
+            cnx.sock.settimeout(self.opts['timeout'])
+        return cnx
+
     def _close_connection(self):
         if self._connection:
             self._connection[1].close()
