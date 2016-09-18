@@ -2068,7 +2068,7 @@ class ClientSession(object):
                     raise
 
     def _sendOneCall(self, handler, headers, request):
-        if self.opts.get('use_requests'):
+        if self.opts.get('use_requests', True):
             return self._sendOneCallReq(handler, headers, request)
         # otherwise use the old way
         cnx = self._get_connection()
