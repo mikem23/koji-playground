@@ -2067,8 +2067,27 @@ class ClientSession(object):
                 if i:
                     raise
 
-
     def _sendOneCall(self, handler, headers, request):
+        if self.opts.get('use_requests'):
+            return self._sendOneCallReq(handler, headers, request)
+        # otherwise use the old way
+        cnx = self._get_connection()
+        if self.opts.get('debug_xmlrpc', False):
+            cnx.set_debuglevel(1)
+        cnx.putrequest('POST', handler)
+        for n, v in headers:
+            cnx.putheader(n, v)
+        cnx.endheaders()
+        cnx.send(request)
+        response = cnx.getresponse()
+        try:
+            ret = self._read_xmlrpc_response(response, handler)
+        finally:
+            response.close()
+        return ret
+
+
+    def _sendOneCallReq(self, handler, headers, request):
         headers = dict(headers)
         callopts = {
             'headers': headers,
