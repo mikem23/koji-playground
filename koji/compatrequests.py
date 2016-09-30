@@ -11,6 +11,7 @@ import httplib
 import urlparse
 import urllib
 import sys
+import ssl
 try:
     from ssl import ssl as pyssl
 except ImportError:
