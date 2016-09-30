@@ -13,7 +13,7 @@ class Session(object):
     def __init__(self):
         self.connection = None
 
-    def post(self, url, data=None, headers=None, stream=None, verify=None
+    def post(self, url, data=None, headers=None, stream=None, verify=None,
                 cert=None, timeout=None):
         cnx = self.get_connection(url, cert, timeout)
         # TODO get handler from url
