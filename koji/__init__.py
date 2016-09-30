@@ -1487,6 +1487,7 @@ def read_config(profile_name, user_config=None):
         'anon_retry' : None,
         'offline_retry' : None,
         'offline_retry_interval' : None,
+        'use_old_ssl' : False,
         'keepalive' : True,
         'timeout' : None,
         'use_fast_upload': False,
@@ -1548,7 +1549,8 @@ def read_config(profile_name, user_config=None):
                 #options *can* be set via the config file. Such options should
                 #not have a default value set in the option parser.
                 if result.has_key(name):
-                    if name in ('anon_retry', 'offline_retry', 'keepalive', 'use_fast_upload', 'krb_rdns'):
+                    if name in ('anon_retry', 'offline_retry', 'keepalive',
+                                'use_fast_upload', 'krb_rdns', 'use_old_ssl'):
                         result[name] = config.getboolean(profile_name, name)
                     elif name in ('max_retries', 'retry_interval',
                                   'offline_retry_interval', 'poll_interval', 'timeout',
@@ -1796,18 +1798,23 @@ class ClientSession(object):
             opts = opts.copy()
         self.baseurl = baseurl
         self.opts = opts
-        self._connection = None
         self.authtype = None
         self.setSession(sinfo)
         self.multicall = False
         self._calls = []
         self.logger = logging.getLogger('koji')
-        if opts.get('use_old_ssl', True):
+        self.rsession = None
+        self.new_session()
+        self.opts.setdefault('timeout',  60 * 60 * 12)
+
+    def new_session(self):
+        if self.rsession:
+            self.rsession.close()
+        if self.opts.get('use_old_ssl', False):
             import koji.compatrequests
             self.rsession = koji.compatrequests.Session()
         else:
             self.rsession = requests.Session()
-        self.opts.setdefault('timeout',  60 * 60 * 12)
 
     def setSession(self, sinfo):
         """Set the session info
@@ -2016,11 +2023,11 @@ class ClientSession(object):
             try:
                 return self._sendOneCall(handler, headers, request)
             except socket.error, e:
-                self._close_connection()
+                self.new_session()
                 if i or getattr(e, 'errno', None) not in (errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE):
                     raise
             except httplib.BadStatusLine:
-                self._close_connection()
+                self.new_session()
                 if i:
                     raise
 
@@ -2057,11 +2064,6 @@ class ClientSession(object):
         finally:
             r.close()
         return ret
-
-    def _close_connection(self):
-        if self._connection:
-            self._connection[1].close()
-            self._connection = None
 
     def _read_xmlrpc_response(self, response):
         p, u = xmlrpclib.getparser()
@@ -2120,7 +2122,7 @@ class ClientSession(object):
                     raise
                 except Exception, e:
                     tb_str = ''.join(traceback.format_exception(*sys.exc_info()))
-                    self._close_connection()
+                    self.new_session()
 
                     if is_cert_error(e):
                         # There's no point in retrying for this
