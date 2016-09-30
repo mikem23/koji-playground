@@ -1797,59 +1797,13 @@ class ClientSession(object):
         self.baseurl = baseurl
         self.opts = opts
         self._connection = None
-        self._setup_connection()
         self.authtype = None
         self.setSession(sinfo)
         self.multicall = False
         self._calls = []
         self.logger = logging.getLogger('koji')
+        self.rsession = requests.Session()
         self.opts.setdefault('timeout',  60 * 60 * 12)
-
-
-    def _setup_connection(self):
-        if self.opts.get('use_requests', True):
-            self.rsession = requests.Session()
-            return
-        # otherwise use the old way
-        uri = urlparse.urlsplit(self.baseurl)
-        scheme = uri[0]
-        self._host, _port = urllib.splitport(uri[1])
-        self.explicit_port = bool(_port)
-        self._path = uri[2]
-        default_port = 80
-        if self.opts.get('certs'):
-            ctx = ssl.SSLCommon.CreateSSLContext(self.opts['certs'])
-            cnxOpts = {'ssl_context' : ctx}
-            cnxClass = ssl.SSLCommon.PlgHTTPSConnection
-            default_port = 443
-        elif scheme == 'https':
-            cnxOpts = {}
-            if sys.version_info[:3] >= (2, 7, 9):
-                #ctx = pyssl.SSLContext(pyssl.PROTOCOL_SSLv23)
-                ctx = pyssl._create_unverified_context()
-                # TODO - we should default to verifying where possible
-                cnxOpts['context'] = ctx
-            cnxClass = httplib.HTTPSConnection
-            default_port = 443
-        elif scheme == 'http':
-            cnxOpts = {}
-            cnxClass = httplib.HTTPConnection
-        else:
-            raise IOError, "unsupported XML-RPC protocol"
-        # set a default 12 hour connection timeout.
-        # Some Koji operations can take a long time to return, but after 12
-        # hours we can assume something is seriously wrong.
-        timeout = self.opts.setdefault('timeout', 60 * 60 * 12)
-        self._timeout_compat = False
-        if timeout:
-            if sys.version_info[:3] < (2, 6, 0) and 'ssl_context' not in cnxOpts:
-                self._timeout_compat = True
-            else:
-                cnxOpts['timeout'] = timeout
-        self._port = (_port and int(_port) or default_port)
-        self._cnxOpts = cnxOpts
-        self._cnxClass = cnxClass
-        self._close_connection()
 
     def setSession(self, sinfo):
         """Set the session info
@@ -1859,7 +1813,6 @@ class ClientSession(object):
             self.logged_in = False
             self.callnum = None
             # do we need to do anything else here?
-            self._setup_connection()
             self.authtype = None
         else:
             self.logged_in = True
@@ -2068,26 +2021,6 @@ class ClientSession(object):
                     raise
 
     def _sendOneCall(self, handler, headers, request):
-        if self.opts.get('use_requests', True):
-            return self._sendOneCallReq(handler, headers, request)
-        # otherwise use the old way
-        cnx = self._get_connection()
-        if self.opts.get('debug_xmlrpc', False):
-            cnx.set_debuglevel(1)
-        cnx.putrequest('POST', handler)
-        for n, v in headers:
-            cnx.putheader(n, v)
-        cnx.endheaders()
-        cnx.send(request)
-        response = cnx.getresponse()
-        try:
-            ret = self._read_xmlrpc_response(response, handler)
-        finally:
-            response.close()
-        return ret
-
-
-    def _sendOneCallReq(self, handler, headers, request):
         headers = dict(headers)
         callopts = {
             'headers': headers,
@@ -2120,22 +2053,6 @@ class ClientSession(object):
         finally:
             r.close()
         return ret
-
-    def _get_connection(self):
-        key = (self._cnxClass, self._host, self._port)
-        if self._connection and self.opts.get('keepalive'):
-            if key == self._connection[0]:
-                cnx = self._connection[1]
-                if getattr(cnx, 'sock', None):
-                    return cnx
-        cnx = self._cnxClass(self._host, self._port, **self._cnxOpts)
-        self._connection = (key, cnx)
-        if self._timeout_compat:
-            # in python < 2.6 httplib does not support the timeout option
-            # but socket supports it since 2.3
-            cnx.connect()
-            cnx.sock.settimeout(self.opts['timeout'])
-        return cnx
 
     def _close_connection(self):
         if self._connection:
