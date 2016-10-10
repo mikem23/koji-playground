@@ -7119,12 +7119,14 @@ def activate_session(session):
     """Test and login the session is applicable"""
     global options
     try:
-        koji.create_auth_handler(options=options).login(session=session, options=options)
-    except koji.AuthError as e:
+        session.activate(options)
+        if options.debug:
+            print "successfully connected to hub"
+    except koji.APIVersionError as e:
+        warn(_(e.message))
+    except Exception as e:
         error(_(e.message))
-    ensure_connection(session)
-    if options.debug:
-        print "successfully connected to hub"
+
 
 if __name__ == "__main__":
     global options
@@ -7150,7 +7152,7 @@ if __name__ == "__main__":
         value = getattr(options,k)
         if value is not None:
             session_opts[k] = value
-    session = koji.ClientSession(options.server,session_opts)
+    session = koji.ClientSession(options.server, session_opts)
     rv = 0
     try:
         rv = locals()[command].__call__(options, session, args)
