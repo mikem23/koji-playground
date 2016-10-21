@@ -4871,8 +4871,8 @@ class RPMImporter(object):
         # harmless if build already has this type
         new_typed_build(buildinfo, 'rpm')
 
+        rpminfo['id'] = _singleValue("""SELECT nextval('rpminfo_id_seq')""")
         data = rpminfo.copy()
-        data['id'] = _singleValue("""SELECT nextval('rpminfo_id_seq')""")
         del data['sourcepackage']
         del data['sourcerpm']
         insert = InsertProcessor('rpminfo', data=data)
