@@ -40,9 +40,11 @@ class TestImportRPM(unittest.TestCase):
         with self.assertRaises(koji.GenericError):
             kojihub.import_rpm("this does not exist")
 
+    @mock.patch('kojihub.get_rpm')
     @mock.patch('kojihub.get_build')
     @mock.patch('koji.get_rpm_header')
-    def test_import_rpm_failed_build(self, get_rpm_header, get_build):
+    def test_import_rpm_failed_build(self, get_rpm_header, get_build, get_rpm):
+        get_rpm.return_value = None
         get_rpm_header.return_value = self.rpm_header_retval
         get_build.return_value = {
             'state': koji.BUILD_STATES['FAILED'],
@@ -53,6 +55,27 @@ class TestImportRPM(unittest.TestCase):
         with self.assertRaises(koji.GenericError):
             kojihub.import_rpm(self.filename)
 
+    @mock.patch('kojihub.get_rpm')
+    @mock.patch('kojihub.get_build')
+    @mock.patch('koji.get_rpm_header')
+    def test_import_duplicate_rpm(self, get_rpm_header, get_build, get_rpm):
+        rpminfo = {'name': 'name', 'version': 'version', 'release': 'release',
+                'arch': 'src'}
+        dup = rpminfo.copy()
+        dup['external_repo_id'] = 0
+        dup['id'] = 1234
+        get_rpm.return_value = dup
+        get_rpm_header.return_value = self.rpm_header_retval
+        get_build.return_value = {
+            'state': koji.BUILD_STATES['FAILED'],
+            'name': 'name',
+            'version': 'version',
+            'release': 'release',
+        }
+        with self.assertRaises(koji.GenericError):
+            kojihub.import_rpm(self.filename)
+
+    @mock.patch('kojihub.get_rpm')
     @mock.patch('kojihub.new_typed_build')
     @mock.patch('kojihub._dml')
     @mock.patch('kojihub._singleValue')
@@ -60,7 +83,8 @@ class TestImportRPM(unittest.TestCase):
     @mock.patch('koji.get_rpm_header')
     def test_import_rpm_completed_build(self, get_rpm_header, get_build,
                                         _singleValue, _dml,
-                                        new_typed_build):
+                                        new_typed_build, get_rpm):
+        get_rpm.return_value = None
         get_rpm_header.return_value = self.rpm_header_retval
         get_build.return_value = {
             'state': koji.BUILD_STATES['COMPLETE'],
@@ -105,14 +129,15 @@ class TestImportRPM(unittest.TestCase):
         }
         _dml.assert_called_once_with(statement, values)
 
+    @mock.patch('kojihub.get_rpm')
     @mock.patch('kojihub.new_typed_build')
     @mock.patch('kojihub._dml')
     @mock.patch('kojihub._singleValue')
     @mock.patch('kojihub.get_build')
     @mock.patch('koji.get_rpm_header')
     def test_import_rpm_completed_source_build(self, get_rpm_header, get_build,
-                                               _singleValue, _dml,
-                                               new_typed_build):
+                _singleValue, _dml, new_typed_build, get_rpm):
+        get_rpm.return_value = None
         retval = copy.copy(self.rpm_header_retval)
         retval.update({
             'filename': 'name-version-release.arch.rpm',

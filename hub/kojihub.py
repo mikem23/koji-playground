@@ -4846,6 +4846,7 @@ class RPMImporter(object):
         self.buildinfo = buildinfo
         self.filepath = fn
         self.fileinfo = fileinfo
+        self.brootid = brootid
 
     def execute(self):
         """Actually do the import"""
@@ -4853,6 +4854,7 @@ class RPMImporter(object):
         buildinfo = self.buildinfo
         fn = self.filepath
         fileinfo = self.fileinfo
+        brootid = self.brootid
 
         koji.plugin.run_callbacks('preImport', type='rpm', rpm=rpminfo, build=buildinfo,
                                   filepath=fn, fileinfo=fileinfo)
