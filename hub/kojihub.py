@@ -4876,6 +4876,12 @@ class RPMImporter(object):
         rpminfo['brootid'] = brootid
         return rpminfo
 
+    def write_file(self):
+        import_rpm_file(self.filepath, self.buildinfo, self.rpminfo)
+
+    def import_signature(self):
+        add_rpm_sig(self.rpminfo['id'], koji.rip_rpm_sighdr(self.filepath))
+
 
 def cg_import(metadata, directory):
     """Import build from a content generator
