@@ -4741,12 +4741,20 @@ def import_build(srpm, rpms, brmap=None, task_id=None, build_id=None, logs=None)
         WHERE id=%(build_id)i"""
         _dml(update, locals())
         koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
+
     # now to handle the individual rpms
+    importers = []
     for relpath in [srpm] + rpms:
         fn = "%s/%s" % (uploadpath, relpath)
-        rpminfo = import_rpm(fn, binfo, brmap.get(relpath))
-        import_rpm_file(fn, binfo, rpminfo)
-        add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
+        importer = RPMImporter(fn, binfo, brmap.get(relpath))
+        importers.append(importer)
+    # db first
+    for importer in importers:
+        importer.execute()
+    # then filesystem
+    for importer in importers:
+        importer.write_file()
+        importer.import_signature()
     if logs:
         for key, files in logs.iteritems():
             if not key:

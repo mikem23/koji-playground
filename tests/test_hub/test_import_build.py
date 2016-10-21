@@ -222,10 +222,7 @@ class TestImportBuild(unittest.TestCase):
     @mock.patch('kojihub._dml')
     @mock.patch('kojihub._singleValue')
     @mock.patch('kojihub.get_build')
-    @mock.patch('kojihub.add_rpm_sig')
-    @mock.patch('koji.rip_rpm_sighdr')
-    @mock.patch('kojihub.import_rpm_file')
-    @mock.patch('kojihub.import_rpm')
+    @mock.patch('kojihub.RPMImporter')
     @mock.patch('kojihub.QueryProcessor')
     @mock.patch('kojihub.context')
     @mock.patch('kojihub.new_package')
@@ -233,12 +230,9 @@ class TestImportBuild(unittest.TestCase):
     @mock.patch('koji.pathinfo.work')
     def test_import_build_completed_build(self, work, get_rpm_header,
                                           new_package, context, query,
-                                          import_rpm, import_rpm_file,
-                                          rip_rpm_sighdr, add_rpm_sig,
+                                          RPMImporter,
                                           get_build, _singleValue, _dml,
                                           new_typed_build):
-
-        rip_rpm_sighdr.return_value = (0, 0)
 
         processor = mock.MagicMock()
         processor.executeOne.return_value = None
