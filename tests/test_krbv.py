@@ -13,6 +13,12 @@ class ClientSession(koji.ClientSession):
         pass
 
 
+def mock_callMethod(name, args, kwargs=None):
+    if name == 'system.listMethods':
+        return ['gssapiLogin']
+    return mock.DEFAULT
+
+
 class KrbVTestCase(unittest.TestCase):
 
     @mock.patch('koji.krbV', new=None)
@@ -29,11 +35,11 @@ class KrbVTestCase(unittest.TestCase):
     @mock.patch('koji.krbV', new=None)
     @mock.patch('koji.gssapi', new=None)
     @mock.patch('koji.ClientSession._setup_connection', new=mock.MagicMock())
-    @mock.patch('koji.ClientSession._callMethod', new=mock.MagicMock())
     @mock.patch('koji.ClientSession.logout', new=mock.MagicMock())
+    @mock.patch('koji.ClientSession._callMethod', side_effect=mock_callMethod)
     @mock.patch('koji.ClientSession.krb_gssapi_login')
     @mock.patch('koji.ClientSession.krb_krbV_login')
-    def test_krbv_disabled(self, krb_krbV_login, krb_gssapi_login):
+    def test_krbv_codepath(self, krb_krbV_login, krb_gssapi_login, _callMethod):
         """ Test that correct krb codepath is used """
 
         mocks = (krb_krbV_login, krb_gssapi_login)
