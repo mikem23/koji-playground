@@ -1981,9 +1981,7 @@ class ClientSession(object):
         return sinfo_str
 
     def _krb_login_methods(self, principal, keytab, ccache, proxyuser):
-        methods = self.system.listMethods()
-
-        if gssapi and 'gssapiLogin' in methods:
+        if gssapi and 'gssapiLogin' in self.system.listMethods():
             return self.krb_gssapi_login(principal, keytab, ccache, proxyuser)
 
         if krbV:
