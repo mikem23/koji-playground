@@ -1981,8 +1981,7 @@ class ClientSession(object):
         return sinfo_str
 
     def _krb_login_methods(self, principal, keytab, ccache, proxyuser):
-        methods = xmlrpclib.ServerProxy('http://%s%s' %
-                                        (self._host, self._path)).system.listMethods()
+        methods = self.system.listMethods()
 
         if gssapi and 'gssapiLogin' in methods:
             return self.krb_gssapi_login(principal, keytab, ccache, proxyuser)
