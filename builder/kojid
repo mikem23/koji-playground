@@ -90,6 +90,15 @@ try:
 except ImportError:  # pragma: no cover
     pass
 
+
+def child_callback(handler):
+    """Called when TaskManager forks a child"""
+    # Disable mail logging in child tasks
+    global mail_logger
+    if mail_logger:
+        koji.remove_log_handler('koji', mail_logger)
+
+
 def main(options, session):
     logger = logging.getLogger("koji.build")
     logger.info('Starting up')
@@ -97,6 +106,7 @@ def main(options, session):
     tm = TaskManager(options, session)
     tm.findHandlers(globals())
     tm.findHandlers(vars(koji.tasks))
+    tm.on_child = child_callback
     if options.plugin:
         #load plugins
         pt = koji.plugin.PluginTracker(path=options.pluginpath.split(':'))
@@ -5071,8 +5081,9 @@ if __name__ == "__main__":
         logging.getLogger("koji").setLevel(logging.INFO)
     if options.debug_task:
         logging.getLogger("koji.build.BaseTaskHandler").setLevel(logging.DEBUG)
+    mail_logger = None
     if options.admin_emails:
-        koji.add_mail_logger("koji", options.admin_emails)
+        mail_logger = koji.add_mail_logger("koji", options.admin_emails)
 
     #build session options
     session_opts = {}

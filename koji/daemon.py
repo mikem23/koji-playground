@@ -480,6 +480,7 @@ class TaskManager(object):
         self.host_id = self.session.host.getID()
         self.start_time = self.session.getSessionInfo()['start_time']
         self.logger = logging.getLogger("koji.TaskManager")
+        self.on_child = None
 
     def findHandlers(self, vars):
         """Find and index task handlers"""
@@ -1147,6 +1148,8 @@ class TaskManager(object):
             handler.session = self.session
             #set a do-nothing handler for sigusr2
             signal.signal(signal.SIGUSR2, lambda *args: None)
+            if self.on_child:
+                self.on_child(handler)
             self.runTask(handler)
         finally:
             #diediedie

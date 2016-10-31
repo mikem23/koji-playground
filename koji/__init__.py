@@ -2700,12 +2700,16 @@ def add_file_logger(logger, fn):
     handler = logging.handlers.RotatingFileHandler(fn, maxBytes=1024*1024*10, backupCount=5)
     handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
     logging.getLogger(logger).addHandler(handler)
+    return handler
+
 
 def add_stderr_logger(logger):
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] {%(process)d} %(name)s:%(lineno)d %(message)s'))
     handler.setLevel(logging.DEBUG)
     logging.getLogger(logger).addHandler(handler)
+    return handler
+
 
 def add_sys_logger(logger):
     # For remote logging;
@@ -2716,6 +2720,8 @@ def add_sys_logger(logger):
     handler.setFormatter(logging.Formatter('%(name)s: %(message)s'))
     handler.setLevel(logging.INFO)
     logging.getLogger(logger).addHandler(handler)
+    return handler
+
 
 def add_mail_logger(logger, addr):
     if not addr:
@@ -2727,6 +2733,8 @@ def add_mail_logger(logger, addr):
     handler.setFormatter(logging.Formatter('%(pathname)s:%(lineno)d [%(levelname)s] %(message)s'))
     handler.setLevel(logging.ERROR)
     logging.getLogger(logger).addHandler(handler)
+    return handler
+
 
 def add_db_logger(logger, cnx):
     handler = DBHandler(cnx, "log_messages", {'message': '%(message)s',
@@ -2739,6 +2747,7 @@ def add_db_logger(logger, cnx):
     handler.setFormatter(logging.Formatter(datefmt='%Y-%m-%d %H:%M:%S'))
     logging.getLogger(logger).addHandler(handler)
     return handler
+
 
 def remove_log_handler(logger, handler):
     logging.getLogger(logger).removeHandler(handler)
