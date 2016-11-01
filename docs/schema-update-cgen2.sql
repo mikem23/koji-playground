@@ -51,8 +51,16 @@ UPDATE archiveinfo SET btype_id=(SELECT id FROM btype WHERE name='image' LIMIT 1
 
 -- new component tables
 SELECT statement_timestamp(), 'Creating new component tables' as msg;
-CREATE TABLE archive_rpm_components AS SELECT image_id, rpm_id from image_listing;
-CREATE TABLE archive_components AS SELECT image_id, archive_id from image_archive_listing;
+CREATE TABLE archive_rpm_components (
+       image_id INTEGER NOT NULL REFERENCES image_archives(archive_id),
+       rpm_id INTEGER NOT NULL REFERENCES rpminfo(id)
+);
+INSERT into archive_rpm_components (image_id, rpm_id) SELECT image_id, rpm_id from image_listing;
+CREATE TABLE archive_components (
+       image_id INTEGER NOT NULL REFERENCES image_archives(archive_id),
+       archive_id INTEGER NOT NULL REFERENCES archiveinfo(id)
+);
+INSERT into archive_components (image_id, archive_id) SELECT image_id, archive_id from image_archive_listing;
 -- doing it this way and fixing up after is *much* faster than creating the empty table
 -- and using insert..select to populate
 
@@ -60,16 +68,9 @@ SELECT statement_timestamp(), 'Fixing up component tables, rename columns' as ms
 ALTER TABLE archive_rpm_components RENAME image_id TO archive_id;
 ALTER TABLE archive_components RENAME archive_id TO component_id;
 ALTER TABLE archive_components RENAME image_id TO archive_id;
-ALTER TABLE archive_rpm_components ALTER COLUMN rpm_id SET NOT NULL;
-ALTER TABLE archive_rpm_components ALTER COLUMN archive_id SET NOT NULL;
-ALTER TABLE archive_components ALTER COLUMN component_id SET NOT NULL;
-ALTER TABLE archive_components ALTER COLUMN archive_id SET NOT NULL;
 
 SELECT statement_timestamp(), 'Fixing up component tables, adding constraints' as msg;
 ALTER TABLE archive_rpm_components ADD CONSTRAINT archive_rpm_components_archive_id_fkey FOREIGN KEY (archive_id) REFERENCES archiveinfo(id);
-ALTER TABLE archive_rpm_components ADD CONSTRAINT archive_rpm_components_rpm_id_fkey FOREIGN KEY (rpm_id) REFERENCES rpminfo(id);
-ALTER TABLE archive_rpm_components ADD CONSTRAINT archive_rpm_components_archive_id_rpm_id_key UNIQUE (archive_id, rpm_id);
-ALTER TABLE archive_components ADD CONSTRAINT archive_components_archive_id_fkey FOREIGN KEY (archive_id) REFERENCES archiveinfo(id);
 ALTER TABLE archive_components ADD CONSTRAINT archive_components_component_id_fkey FOREIGN KEY (component_id) REFERENCES archiveinfo(id);
 ALTER TABLE archive_components ADD CONSTRAINT archive_components_archive_id_component_id_key UNIQUE (archive_id, component_id);
 
