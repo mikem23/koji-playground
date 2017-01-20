@@ -1648,11 +1648,15 @@ def openRemoteFile(relpath, topurl=None, topdir=None, tempdir=None):
     This is done either via a mounted filesystem (nfs) or http, depending
     on options"""
     if topurl:
+        rsession = requests.Session()
+
         url = "%s/%s" % (topurl, relpath)
-        src = six.moves.urllib.request.urlopen(url)
+        resp = rsession.get(url)
         fo = tempfile.TemporaryFile(dir=tempdir)
-        shutil.copyfileobj(src, fo)
-        src.close()
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                fo.write(chunk)
+        resp.close()
         fo.seek(0)
     elif topdir:
         fn = "%s/%s" % (topdir, relpath)
