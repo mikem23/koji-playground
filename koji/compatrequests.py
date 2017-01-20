@@ -23,8 +23,19 @@ class Session(object):
     def __init__(self):
         self.connection = None
 
+    def get(self, url, headers=None, stream=None, verify=None, cert=None,
+                timeout=None):
+        return self._perform('GET', url=url, headers=headers, stream=stream,
+                             verify=verify, cert=cert)
+
     def post(self, url, data=None, headers=None, stream=None, verify=None,
                 cert=None, timeout=None):
+        return self._perform('POST', url=url, data=data, headers=headers,
+                             stream=stream, verify=verify, cert=cert,
+                             timeout=timeout)
+
+    def _perform(self, method, url, data=None, headers=None, stream=None,
+                verify=None, cert=None, timeout=None):
         uri = urlparse.urlsplit(url)
         if uri[3]:
             handler = "%s?%s" % (uri[2], uri[3])
@@ -32,7 +43,7 @@ class Session(object):
             handler = uri[2]
         cnx = self.get_connection(uri, cert, verify, timeout)
         #cnx.set_debuglevel(1)
-        cnx.putrequest('POST', handler)
+        cnx.putrequest(method, handler)
         if headers:
             for k in headers:
                 cnx.putheader(k, headers[k])
