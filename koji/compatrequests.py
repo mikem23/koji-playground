@@ -137,8 +137,12 @@ class Response(object):
             raise httplib.HTTPException("HTTP %s: %s" % (self.response.status,
                     self.response.reason))
 
-
-    def iter_content(self, blocksize=1):
+    def iter_content(self, chunk_size=8192, blocksize=None):
+        if blocksize is not None:
+            # This was called blocksize in a previous release, while requests
+            # uses chunk_size. So let's stay backwards compatible in case any
+            # places that use it decided to use blocksize as a keyword argument
+            chunk_size = blocksize
         # should we check this in Session.post()?
         # should we even check this here?
         if self.response.status != 200:
@@ -147,7 +151,7 @@ class Response(object):
             # XXX wrong exception
             raise Exception("Server status: %s" % self.response.status)
         while True:
-            chunk = self.response.read(blocksize)
+            chunk = self.response.read(chunk_size)
             if not chunk:
                 break
             yield chunk
