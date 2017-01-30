@@ -539,7 +539,8 @@ def watch_logs(session, tasklist, opts):
 
             time.sleep(options.poll_interval)
     except (KeyboardInterrupt):
-        pass
+        return 1
+
 
 def handle_add_group(options, session, args):
     "[admin] Add a group to a tag"
@@ -6345,7 +6346,7 @@ def anon_handle_watch_logs(options, session, args):
     if not tasks:
         parser.error(_("at least one task id must be specified"))
 
-    watch_logs(session, tasks, options)
+    return watch_logs(session, tasks, options)
 
 def handle_make_task(opts, session, args):
     "[admin] Create an arbitrary task"
@@ -7110,7 +7111,7 @@ def handle_runroot(options, session, args):
         # this is probably the right thing to do here
         print "User interrupt: canceling runroot task"
         session.cancelTask(task_id)
-        return
+        return 1
     output = None
     if "runroot.log" in session.listTaskOutput(task_id):
         output = session.downloadTaskOutput(task_id, "runroot.log")
@@ -7256,7 +7257,7 @@ if __name__ == "__main__":
         if not rv:
             rv = 0
     except KeyboardInterrupt:
-        pass
+        rv = 1
     except SystemExit:
         rv = 1
     except:
