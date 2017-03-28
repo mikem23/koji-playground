@@ -81,6 +81,7 @@ class Dispatcher(object):
         ['KojiHubCA', 'string', '/etc/kojiweb/kojihubca.crt'],
 
         ['PythonDebug', 'boolean', False],
+        ['DebugXMLRPC', 'boolean', False],
 
         ['LoginTimeout', 'integer', 72],
 
@@ -251,6 +252,7 @@ class Dispatcher(object):
         self.logger.info("Method: %s", method)
         func = self.handler_index.get(method)
         if not func:
+            self.logger.error("No handler for %s", method)
             raise URLNotFound
         #parse form args
         data = {}

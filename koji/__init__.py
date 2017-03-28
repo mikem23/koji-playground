@@ -2285,6 +2285,7 @@ class ClientSession(object):
                 self.new_session()
 
     def _sendOneCall(self, handler, headers, request):
+        start = time.time()
         headers = dict(headers)
         callopts = {
             'headers': headers,
@@ -2331,6 +2332,8 @@ class ClientSession(object):
         finally:
             if catcher:
                 catcher.__exit__()
+        if self.opts.get('debug_xmlrpc', False):
+            print("call duration: %.5f seconds" % (time.time() - start))
         return ret
 
     def _read_xmlrpc_response(self, response):
