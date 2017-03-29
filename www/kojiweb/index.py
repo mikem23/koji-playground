@@ -1403,16 +1403,15 @@ def rpminfo(environ, rpmID, fileOrder='name', fileStart=None, buildrootOrder='-i
         headers = server.getRPMHeaders(rpm['id'], headers=['summary', 'description'])
         values['summary'] = koji.fixEncoding(headers.get('summary'))
         values['description'] = koji.fixEncoding(headers.get('description'))
-    #buildroots = kojiweb.util.paginateMethod(server, values, 'listBuildroots', kw={'rpmID': rpm['id']},
-    #                                         start=buildrootStart, dataName='buildroots', prefix='buildroot',
-    #                                         order=buildrootOrder)
+    buildroots = kojiweb.util.paginateMethod(server, values, 'listBuildroots', kw={'rpmID': rpm['id']},
+                                             start=buildrootStart, dataName='buildroots', prefix='buildroot',
+                                             order=buildrootOrder)
 
     values['rpmID'] = rpmID
     values['rpm'] = rpm
     values['build'] = build
     values['builtInRoot'] = builtInRoot
-    #values['buildroots'] = buildroots
-    values['buildroots'] = [] # XXX
+    values['buildroots'] = buildroots
 
     kojiweb.util.paginateMethod(server, values, 'listRPMFiles', args=[rpm['id']],
                                 start=fileStart, dataName='files', prefix='file', order=fileOrder)
