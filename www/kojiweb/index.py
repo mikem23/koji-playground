@@ -1405,6 +1405,7 @@ def rpminfo(environ, rpmID, fileOrder='name', fileStart=None, buildrootOrder='-i
         values['description'] = koji.fixEncoding(headers.get('description'))
     buildroots = kojiweb.util.paginateMethod(server, values, 'listBuildroots', kw={'rpmID': rpm['id']},
                                              start=buildrootStart, dataName='buildroots', prefix='buildroot',
+                                             pageSize=100, # query performance workaround
                                              order=buildrootOrder)
 
     values['rpmID'] = rpmID
