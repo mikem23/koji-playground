@@ -1440,6 +1440,7 @@ def archiveinfo(environ, archiveID, fileOrder='name', fileStart=None, buildrootO
                                 start=fileStart, dataName='files', prefix='file', order=fileOrder)
     buildroots = kojiweb.util.paginateMethod(server, values, 'listBuildroots', kw={'archiveID': archive['id']},
                                              start=buildrootStart, dataName='buildroots', prefix='buildroot',
+                                             pageSize=250, # query performance workaround
                                              order=buildrootOrder)
 
     values['title'] = archive['filename'] + ' | Archive Info'
