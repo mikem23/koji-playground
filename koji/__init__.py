@@ -1592,6 +1592,8 @@ def read_config(profile_name, user_config=None):
         'authtype': None,
         'debug': False,
         'debug_xmlrpc': False,
+        'pluginpath': '/usr/lib/koji-cli/plugins',
+        'plugins': 'runroot save-failed-tree',
     }
 
     result = config_defaults.copy()
