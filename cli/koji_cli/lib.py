@@ -1,3 +1,54 @@
+# coding=utf-8
+import optparse
+import os
+import random
+import socket
+import string
+import sys
+import time
+import xmlrpclib
+try:
+    import krbV
+except ImportError:  # pragma: no cover
+    krbV = None
+
+import koji
+
+# fix OptionParser for python 2.3 (optparse verion 1.4.1+)
+# code taken from optparse version 1.5a2
+OptionParser = optparse.OptionParser
+if optparse.__version__ == "1.4.1+":  # pragma: no cover
+    def _op_error(self, msg):
+        self.print_usage(sys.stderr)
+        msg = "%s: error: %s\n" % (self._get_prog_name(), msg)
+        if msg:
+            sys.stderr.write(msg)
+        sys.exit(2)
+    OptionParser.error = _op_error
+
+greetings = ('hello', 'hi', 'yo', "what's up", "g'day", 'back to work',
+             'bonjour',
+             'hallo',
+             'ciao',
+             'hola',
+            u'olá',
+            u'dobrý den',
+            u'zdravstvuite',
+            u'góðan daginn',
+             'hej',
+             'tervehdys',
+            u'grüezi',
+            u'céad míle fáilte',
+            u'hylô',
+            u'bună ziua',
+            u'jó napot',
+             'dobre dan',
+            u'你好',
+            u'こんにちは',
+            u'नमस्कार',
+            u'안녕하세요')
+
+
 def _(args):
     """Stub function for translation"""
     return args
@@ -31,6 +82,7 @@ categories = {
     'misc' : 'miscellaneous commands',
 }
 
+
 def get_epilog_str(progname=None):
     if progname is None:
         progname = os.path.basename(sys.argv[0]) or 'koji'
@@ -43,6 +95,8 @@ Try "%(progname)s help <category>" to get commands under a particular category
 Available categories are: %(categories)s
 ''' % ({'progname': progname, 'categories': categories_ordered})
     return _(epilog_str)
+
+
 def ensure_connection(session):
     try:
         ret = session.getAPIVersion()
@@ -50,6 +104,7 @@ def ensure_connection(session):
         error(_("Error: Unable to connect to server"))
     if ret != koji.API_VERSION:
         warn(_("WARNING: The server is at API version %d and the client is at %d" % (ret, koji.API_VERSION)))
+
 
 def print_task_headers():
     """Print the column headers"""
@@ -82,6 +137,7 @@ def parse_arches(arches, to_list=False):
     else:
         return ' '.join(arches)
 
+
 class TaskWatcher(object):
 
     def __init__(self,task_id,session,level=0,quiet=False):
@@ -109,7 +165,7 @@ class TaskWatcher(object):
             return ''
         error = None
         try:
-            result = self.session.getTaskResult(self.id)
+            self.session.getTaskResult(self.id)
         except (xmlrpclib.Fault,koji.GenericError),e:
             error = e
         if error is None:
@@ -205,8 +261,7 @@ def display_task_results(tasks):
             # shouldn't happen
             print('%s has not completed' % task_label)
 
-def watch_tasks(session,tasklist,quiet=False):
-    global options
+def watch_tasks(session, tasklist, quiet=False, poll_interval=5):
     if not tasklist:
         return
     if not quiet:
@@ -245,7 +300,7 @@ def watch_tasks(session,tasklist,quiet=False):
                 break
 
             sys.stdout.flush()
-            time.sleep(options.poll_interval)
+            time.sleep(poll_interval)
     except KeyboardInterrupt:
         if tasks and not quiet:
             progname = os.path.basename(sys.argv[0]) or 'koji'
@@ -258,8 +313,7 @@ Running Tasks:
         raise
     return rv
 
-def watch_logs(session, tasklist, opts):
-    global options
+def watch_logs(session, tasklist, opts, poll_interval=5):
     print("Watching logs (this may be safely interrupted)...")
     def _isDone(session, taskId):
         info = session.getTaskInfo(taskId)
@@ -311,7 +365,7 @@ def watch_logs(session, tasklist, opts):
         if not tasklist:
             break
 
-        time.sleep(options.poll_interval)
+        time.sleep(poll_interval)
 
 
 def list_task_output_all_volumes(session, task_id):
@@ -324,6 +378,8 @@ def list_task_output_all_volumes(session, task_id):
     # otherwise leave off the option and fake it
     output = session.listTaskOutput(task_id)
     return dict([fn, ['DEFAULT']] for fn in output)
+
+
 def _unique_path(prefix):
     """Create a unique path fragment by appending a path component
     to prefix.  The path component will consist of a string of letter and numbers
@@ -392,6 +448,8 @@ def linked_upload(localfile, path, name=None):
         os.link(localfile, dst)
     finally:
         os.umask(old_umask)
+
+
 def error(msg=None, code=1):
     if msg:
         sys.stderr.write(msg + "\n")
@@ -408,14 +466,13 @@ def has_krb_creds():
     try:
         ctx = krbV.default_context()
         ccache = ctx.default_ccache()
-        princ = ccache.principal()
+        ccache.principal()
         return True
     except krbV.Krb5Error:
         return False
 
-def activate_session(session):
+def activate_session(session, options):
     """Test and login the session is applicable"""
-    global options
     if options.authtype == "noauth" or options.noauth:
         #skip authentication
         pass
