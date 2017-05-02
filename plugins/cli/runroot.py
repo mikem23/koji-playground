@@ -1,3 +1,11 @@
+import sys
+import time
+import koji
+
+from koji.plugin import export_cli
+from koji_cli.lib import _, OptionParser, activate_session
+
+@export_cli
 def handle_runroot(options, session, args):
     "[admin] Run a command in a buildroot"
     usage = _("usage: %prog runroot [options] <tag> <arch> <command>")
@@ -22,7 +30,7 @@ def handle_runroot(options, session, args):
 
     if len(args) < 3:
         parser.error(_("Incorrect number of arguments"))
-    activate_session(session)
+    activate_session(session, options)
     tag = args[0]
     arch = args[1]
     if opts.use_shell:
@@ -62,7 +70,7 @@ def handle_runroot(options, session, args):
         print("User interrupt: canceling runroot task")
         session.cancelTask(task_id)
         raise
-    output = list_task_output_all_volumes(session, task_id)
+    output = session.listTaskOutput(task_id, all_volumes=True)
     if 'runroot.log' in output:
         for volume in output['runroot.log']:
             log = session.downloadTaskOutput(task_id, 'runroot.log', volume=volume)
