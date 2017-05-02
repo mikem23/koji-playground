@@ -1,28 +1,18 @@
 import unittest
-
 import StringIO as stringio
-
+import mock
 import os
-
 import sys
 
-import mock
-
-from mock import call
-
-import loadcli
-
-cli = loadcli.cli
-
+from koji_cli.commands import handle_edit_tag
 progname = os.path.basename(sys.argv[0]) or 'koji'
-
 
 class TestEditTag(unittest.TestCase):
     # Show long diffs in error output...
     maxDiff = None
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_edit_tag(self, activate_session_mock, stdout):
         tag = 'tag'
         arches = 'arch1 arch2'
@@ -64,12 +54,12 @@ class TestEditTag(unittest.TestCase):
         # --rename=tag2 --maven-support --include-all
         # -x extraA=A -x extraB=True -r extraC -r extraD
         # expected: success
-        rv = cli.handle_edit_tag(options, session, args)
+        rv = handle_edit_tag(options, session, args)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.editTag2.assert_called_once_with(tag, **opts)
         self.assertEqual(rv, None)
 
@@ -89,18 +79,18 @@ class TestEditTag(unittest.TestCase):
         # Run it and check immediate output
         # args: tag --no-perm --unlock --no-maven-support --no-include-all
         # expected: success
-        rv = cli.handle_edit_tag(options, session, args)
+        rv = handle_edit_tag(options, session, args)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.editTag2.assert_called_once_with(tag, **opts)
         self.assertEqual(rv, None)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_edit_tag_help(self, activate_session_mock, stderr, stdout):
         args = ['--help']
         options = mock.MagicMock()
@@ -112,7 +102,7 @@ class TestEditTag(unittest.TestCase):
         # args: --help
         # expected: failed, help info shows
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_edit_tag(options, session, args)
+            handle_edit_tag(options, session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = """Usage: %s edit-tag [options] name
@@ -147,7 +137,7 @@ Options:
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_edit_tag_no_arg(self, activate_session_mock, stderr, stdout):
         args = []
         options = mock.MagicMock()
@@ -159,7 +149,7 @@ Options:
         # args: --help
         # expected: failed, help info shows
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_edit_tag(options, session, args)
+            handle_edit_tag(options, session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = ''

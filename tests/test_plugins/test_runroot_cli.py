@@ -1,15 +1,11 @@
-import os
-import sys
+import mock
 import unittest
-import koji
-
 import StringIO as stringio
 
-import mock
+import koji
+import load_plugin
 
-import loadcli
-cli = loadcli.cli
-
+runroot = load_plugin.load_plugin('cli', 'runroot')
 
 class TestListCommands(unittest.TestCase):
 
@@ -18,13 +14,8 @@ class TestListCommands(unittest.TestCase):
         self.session = mock.MagicMock()
         self.session.getAPIVersion.return_value = koji.API_VERSION
         self.args = mock.MagicMock()
-        self.original_parser = cli.OptionParser
-        cli.OptionParser = mock.MagicMock()
-        self.parser = cli.OptionParser.return_value
-        cli.options = self.options  # globals!!!
-
-    def tearDown(self):
-        cli.OptionParser = self.original_parser
+        runroot.OptionParser = mock.MagicMock()
+        self.parser = runroot.OptionParser.return_value
 
     # Show long diffs in error output...
     maxDiff = None
@@ -46,7 +37,7 @@ class TestListCommands(unittest.TestCase):
         self.session.runroot.return_value = 1
 
         # Run it and check immediate output
-        cli.handle_runroot(self.options, self.session, self.args)
+        runroot.handle_runroot(self.options, self.session, self.args)
         actual = stdout.getvalue()
         actual = actual.replace('nosetests', 'koji')
         expected = 'successfully connected to hub\n1\ntask output'

@@ -1,5 +1,4 @@
 import os
-import sys
 import unittest
 
 import StringIO as stringio
@@ -13,12 +12,20 @@ cli = loadcli.cli
 class TestListCommands(unittest.TestCase):
 
     def setUp(self):
-        self.options = mock.MagicMock()
         self.session = mock.MagicMock()
-        self.args = mock.MagicMock()
         self.original_parser = cli.OptionParser
         cli.OptionParser = mock.MagicMock()
         self.parser = cli.OptionParser.return_value
+        self.options = mock.MagicMock(name='options')
+        self.options.profile = 'koji'
+        self.options.configFile = None
+        self.options.topdir = None
+        self.options.cert = None
+        self.options.serverca = None
+        self.options.pluginpath = None
+        self.options.pkgurl = None
+        self.args = mock.MagicMock()
+        self.parser.parse_args.return_value = (self.options, self.args)
 
     def tearDown(self):
         cli.OptionParser = self.original_parser
@@ -28,7 +35,10 @@ class TestListCommands(unittest.TestCase):
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     def test_list_commands(self, stdout):
-        cli.list_commands()
+        stdout.seek(0)
+        stdout.truncate(0)
+        with self.assertRaises(SystemExit):
+            cli.get_options()
         actual = stdout.getvalue()
         actual = actual.replace('nosetests', 'koji')
         filename = os.path.dirname(__file__) + '/data/list-commands.txt'
@@ -38,9 +48,9 @@ class TestListCommands(unittest.TestCase):
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     def test_handle_admin_help(self, stdout):
-        options, arguments = mock.MagicMock(), mock.MagicMock()
-        options.admin = True
-        self.parser.parse_args.return_value = [options, arguments]
+        stdout.seek(0)
+        stdout.truncate(0)
+        self.options.admin = True
         cli.handle_help(self.options, self.session, self.args)
         actual = stdout.getvalue()
         actual = actual.replace('nosetests', 'koji')

@@ -4,7 +4,6 @@ import StringIO as stringio
 import os
 import sys
 import mock
-import loadcli
 
 try:
     import libcomps
@@ -15,18 +14,19 @@ try:
 except ImportError:
     yumcomps = None
 
-cli = loadcli.cli
-
+import koji_cli.commands
+from koji_cli.commands import handle_import_comps, _import_comps,\
+                              _import_comps_alt
 
 class TestImportComps(unittest.TestCase):
     # Show long diffs in error output...
     maxDiff = None
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.libcomps')
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._import_comps')
-    @mock.patch('koji_cli._import_comps_alt')
+    @mock.patch('koji_cli.commands.libcomps')
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._import_comps')
+    @mock.patch('koji_cli.commands._import_comps_alt')
     def test_handle_import_comps_libcomps(
             self,
             mock_import_comps_alt,
@@ -49,13 +49,13 @@ class TestImportComps(unittest.TestCase):
         # Run it and check immediate output
         # args: ./data/comps-example.xml, tag
         # expected: success
-        rv = cli.handle_import_comps(options, session, args)
+        rv = handle_import_comps(options, session, args)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        mock_activate_session.assert_called_once_with(session)
+        mock_activate_session.assert_called_once_with(session, options)
         session.getTag.assert_called_once_with(tag)
         mock_import_comps.assert_called_once_with(
             session, filename, tag, kwargs)
@@ -63,11 +63,11 @@ class TestImportComps(unittest.TestCase):
         self.assertNotEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.libcomps', new=None)
-    @mock.patch('koji_cli.yumcomps', create=True)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._import_comps')
-    @mock.patch('koji_cli._import_comps_alt')
+    @mock.patch('koji_cli.commands.libcomps', new=None)
+    @mock.patch('koji_cli.commands.yumcomps', create=True)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._import_comps')
+    @mock.patch('koji_cli.commands._import_comps_alt')
     def test_handle_import_comps_yumcomps(
             self,
             mock_import_comps_alt,
@@ -90,13 +90,13 @@ class TestImportComps(unittest.TestCase):
         # Run it and check immediate output
         # args: --force, ./data/comps-example.xml, tag
         # expected: success
-        rv = cli.handle_import_comps(options, session, args)
+        rv = handle_import_comps(options, session, args)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        mock_activate_session.assert_called_once_with(session)
+        mock_activate_session.assert_called_once_with(session, options)
         session.getTag.assert_called_once_with(tag)
         mock_import_comps.assert_not_called()
         mock_import_comps_alt.assert_called_once_with(
@@ -104,11 +104,11 @@ class TestImportComps(unittest.TestCase):
         self.assertNotEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.libcomps', new=None)
-    @mock.patch('koji_cli.yumcomps', new=None, create=True)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._import_comps')
-    @mock.patch('koji_cli._import_comps_alt')
+    @mock.patch('koji_cli.commands.libcomps', new=None)
+    @mock.patch('koji_cli.commands.yumcomps', new=None, create=True)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._import_comps')
+    @mock.patch('koji_cli.commands._import_comps_alt')
     def test_handle_import_comps_comps_na(
             self,
             mock_import_comps_alt,
@@ -128,22 +128,22 @@ class TestImportComps(unittest.TestCase):
         # Run it and check immediate output
         # args: --force, ./data/comps-example.xml, tag
         # expected: failed, no comps available
-        rv = cli.handle_import_comps(options, session, args)
+        rv = handle_import_comps(options, session, args)
         actual = stdout.getvalue()
         expected = 'comps module not available\n'
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        mock_activate_session.assert_called_once_with(session)
+        mock_activate_session.assert_called_once_with(session, options)
         session.getTag.assert_called_once_with(tag)
         mock_import_comps.assert_not_called()
         mock_import_comps_alt.assert_not_called()
         self.assertEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._import_comps')
-    @mock.patch('koji_cli._import_comps_alt')
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._import_comps')
+    @mock.patch('koji_cli.commands._import_comps_alt')
     def test_handle_import_comps_tag_not_exists(
             self,
             mock_import_comps_alt,
@@ -163,13 +163,13 @@ class TestImportComps(unittest.TestCase):
         # Run it and check immediate output
         # args: ./data/comps-example.xml, tag
         # expected: failed: tag does not exist
-        rv = cli.handle_import_comps(options, session, args)
+        rv = handle_import_comps(options, session, args)
         actual = stdout.getvalue()
         expected = 'No such tag: tag\n'
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        mock_activate_session.assert_called_once_with(session)
+        mock_activate_session.assert_called_once_with(session, options)
         session.getTag.assert_called_once_with(tag)
         mock_import_comps.assert_not_called()
         mock_import_comps_alt.assert_not_called()
@@ -177,9 +177,9 @@ class TestImportComps(unittest.TestCase):
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._import_comps')
-    @mock.patch('koji_cli._import_comps_alt')
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._import_comps')
+    @mock.patch('koji_cli.commands._import_comps_alt')
     def test_handle_import_comps_help(
             self,
             mock_import_comps_alt, mock_import_comps,
@@ -195,7 +195,7 @@ class TestImportComps(unittest.TestCase):
 
         # Run it and check immediate output
         with self.assertRaises(SystemExit) as cm:
-            rv = cli.handle_import_comps(options, session, args)
+            rv = handle_import_comps(options, session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = ''
@@ -223,7 +223,7 @@ class TestImportComps(unittest.TestCase):
         calls_file = os.path.dirname(
             __file__) + '/data/comps-example.libcomps.calls'
         self._test_import_comps(
-            cli._import_comps,
+            _import_comps,
             comps_file,
             stdout_file,
             calls_file,
@@ -238,7 +238,7 @@ class TestImportComps(unittest.TestCase):
         calls_file = os.path.dirname(
             __file__) + '/data/comps-sample.libcomps.calls'
         self._test_import_comps(
-            cli._import_comps,
+            _import_comps,
             comps_file,
             stdout_file,
             calls_file,
@@ -246,8 +246,8 @@ class TestImportComps(unittest.TestCase):
 
     @unittest.skipIf(yumcomps is None, "No yum.comps")
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.libcomps', new=None)
-    @mock.patch('koji_cli.yumcomps', create=True, new=yumcomps)
+    @mock.patch('koji_cli.commands.libcomps', new=None)
+    @mock.patch('koji_cli.commands.yumcomps', create=True, new=yumcomps)
     def test_import_comps_yumcomps(self, stdout):
         comps_file = os.path.dirname(__file__) + '/data/comps-example.xml'
         stdout_file = os.path.dirname(
@@ -255,7 +255,7 @@ class TestImportComps(unittest.TestCase):
         calls_file = os.path.dirname(
             __file__) + '/data/comps-example.yumcomps.calls'
         self._test_import_comps(
-            cli._import_comps_alt,
+            _import_comps_alt,
             comps_file,
             stdout_file,
             calls_file,
@@ -263,8 +263,8 @@ class TestImportComps(unittest.TestCase):
 
     @unittest.skipIf(yumcomps is None, "No yum.comps")
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.libcomps', new=None)
-    @mock.patch('koji_cli.yumcomps', create=True, new=yumcomps)
+    @mock.patch('koji_cli.commands.libcomps', new=None)
+    @mock.patch('koji_cli.commands.yumcomps', create=True, new=yumcomps)
     def test_import_comps_sample_yumcomps(self, stdout):
         comps_file = os.path.dirname(__file__) + '/data/comps-sample.xml'
         stdout_file = os.path.dirname(
@@ -272,7 +272,7 @@ class TestImportComps(unittest.TestCase):
         calls_file = os.path.dirname(
             __file__) + '/data/comps-sample.yumcomps.calls'
         self._test_import_comps(
-            cli._import_comps_alt,
+            _import_comps_alt,
             comps_file,
             stdout_file,
             calls_file,
@@ -341,20 +341,20 @@ def generate_out_calls():
     comps_file = path + '/data/comps-example.xml'
     stdout_file = path + '/data/comps-example.libcomps.out'
     calls_file = path + '/data/comps-example.libcomps.calls'
-    _generate_out_calls(cli._import_comps, comps_file, stdout_file, calls_file)
+    _generate_out_calls(_import_comps, comps_file, stdout_file, calls_file)
 
     comps_file = path + '/data/comps-sample.xml'
     stdout_file = path + '/data/comps-sample.libcomps.out'
     calls_file = path + '/data/comps-sample.libcomps.calls'
-    _generate_out_calls(cli._import_comps, comps_file, stdout_file, calls_file)
+    _generate_out_calls(_import_comps, comps_file, stdout_file, calls_file)
 
-    cli.yumcomps = yumcomps
+    koji_cli.commands.yumcomps = yumcomps
 
     comps_file = path + '/data/comps-example.xml'
     stdout_file = path + '/data/comps-example.yumcomps.out'
     calls_file = path + '/data/comps-example.yumcomps.calls'
     _generate_out_calls(
-        cli._import_comps_alt,
+        _import_comps_alt,
         comps_file,
         stdout_file,
         calls_file)
@@ -363,7 +363,7 @@ def generate_out_calls():
     stdout_file = path + '/data/comps-sample.yumcomps.out'
     calls_file = path + '/data/comps-sample.yumcomps.calls'
     _generate_out_calls(
-        cli._import_comps_alt,
+        _import_comps_alt,
         comps_file,
         stdout_file,
         calls_file)

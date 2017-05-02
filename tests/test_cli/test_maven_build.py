@@ -8,10 +8,9 @@ import sys
 
 import mock
 
-import loadcli
 import optparse
 
-cli = loadcli.cli
+from koji_cli.commands import handle_maven_build
 
 EMPTY_BUILD_OPTS = {
     'specfile': None,
@@ -30,7 +29,8 @@ EMPTY_BUILD_OPTS = {
     'debug': None,
     'packages': [],
     'properties': [],
-    'inis': []}
+    'inis': [],
+}
 
 
 class TestMavenBuild(unittest.TestCase):
@@ -42,13 +42,14 @@ class TestMavenBuild(unittest.TestCase):
         self.options = mock.MagicMock()
         self.options.quiet = None
         self.options.weburl = 'weburl'
+        self.options.poll_interval = 0
         # Mock out the xmlrpc server
         self.session = mock.MagicMock()
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build(self, watch_tasks_mock, running_in_bg_mock,
                                 activate_session_mock, stdout):
         target = 'target'
@@ -68,14 +69,15 @@ class TestMavenBuild(unittest.TestCase):
         # Run it and check immediate output
         # args: target http://scm
         # expected: success
-        rv = cli.handle_maven_build(self.options, self.session, args)
+        rv = handle_maven_build(self.options, self.session, args)
         actual = stdout.getvalue()
         expected = """Created task: 1
 Task info: weburl/taskinfo?taskID=1
 """
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         self.session.mavenBuild.assert_called_once_with(
@@ -83,14 +85,15 @@ Task info: weburl/taskinfo?taskID=1
         running_in_bg_mock.assert_called_once()
         self.session.logout.assert_called()
         watch_tasks_mock.assert_called_once_with(
-            self.session, [task_id], quiet=self.options.quiet)
+            self.session, [task_id], quiet=self.options.quiet,
+            poll_interval=0)
         self.assertEqual(rv, 0)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_no_arg(
             self,
             watch_tasks_mock,
@@ -103,7 +106,7 @@ Task info: weburl/taskinfo?taskID=1
 
         # Run it and check immediate output
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = ''
@@ -128,9 +131,9 @@ Task info: weburl/taskinfo?taskID=1
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_no_arg_with_ini(
             self,
             watch_tasks_mock,
@@ -143,7 +146,7 @@ Task info: weburl/taskinfo?taskID=1
 
         # Run it and check immediate output
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = ''
@@ -168,9 +171,9 @@ Task info: weburl/taskinfo?taskID=1
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_help(
             self,
             watch_tasks_mock,
@@ -183,7 +186,7 @@ Task info: weburl/taskinfo?taskID=1
 
         # Run it and check immediate output
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = """Usage: %s maven-build [options] target URL
@@ -235,9 +238,9 @@ Options:
         self.assertEqual(cm.exception.code, 0)
 
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_target_not_found(
             self,
             watch_tasks_mock,
@@ -256,7 +259,7 @@ Options:
         # args: target http://scm
         # expected: failed, target not found
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual = stderr.getvalue()
         expected = """Usage: %s maven-build [options] target URL
        %s maven-build --ini=CONFIG... [options] target
@@ -266,7 +269,8 @@ Options:
 """ % (progname, progname, progname)
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_not_called()
         running_in_bg_mock.assert_not_called()
@@ -276,9 +280,9 @@ Options:
         self.assertEqual(cm.exception.code, 2)
 
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_build_dest_tag_not_found(
             self,
             watch_tasks_mock,
@@ -301,7 +305,7 @@ Options:
         # args: target http://scm
         # expected: failed, dest_tag not found
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual = stderr.getvalue()
         expected = """Usage: %s maven-build [options] target URL
        %s maven-build --ini=CONFIG... [options] target
@@ -311,7 +315,8 @@ Options:
 """ % (progname, progname, progname)
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         running_in_bg_mock.assert_not_called()
@@ -321,9 +326,9 @@ Options:
         self.assertEqual(cm.exception.code, 2)
 
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_build_dest_tag_locked(
             self,
             watch_tasks_mock,
@@ -346,7 +351,7 @@ Options:
         # args: target http://scm
         # expected: failed, dest_tag is locked
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual = stderr.getvalue()
         expected = """Usage: %s maven-build [options] target URL
        %s maven-build --ini=CONFIG... [options] target
@@ -356,7 +361,8 @@ Options:
 """ % (progname, progname, progname)
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         running_in_bg_mock.assert_not_called()
@@ -367,7 +373,7 @@ Options:
 
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     @mock.patch(
         'koji.util.parse_maven_param',
         return_value={
@@ -377,8 +383,8 @@ Options:
                     'pkg1',
                     'pkg2']}})
     @mock.patch('koji.util.maven_opts')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_build_inis(
             self,
             watch_tasks_mock,
@@ -417,14 +423,15 @@ Options:
         # Run it and check immediate output
         # args: --ini=config1.ini --ini=config2.ini --section=section target
         # expected: success
-        rv = cli.handle_maven_build(self.options, self.session, args)
+        rv = handle_maven_build(self.options, self.session, args)
         actual = stdout.getvalue()
         expected = """Created task: 1
 Task info: weburl/taskinfo?taskID=1
 """
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         parse_maven_param_mock.assert_called_once_with(
@@ -435,7 +442,7 @@ Task info: weburl/taskinfo?taskID=1
         running_in_bg_mock.assert_called_once()
         self.session.logout.assert_called_once()
         watch_tasks_mock.assert_called_once_with(
-            self.session, [task_id], quiet=build_opts.quiet)
+            self.session, [task_id], quiet=self.options.quiet, poll_interval=0)
         self.assertEqual(rv, 0)
 
         stdout.seek(0)
@@ -454,7 +461,7 @@ Task info: weburl/taskinfo?taskID=1
         # args: --ini=config1.ini --ini=config2.ini --section=section target
         # expected: failed, no type == 'maven' found
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual = stderr.getvalue()
         expected = """Usage: %s maven-build [options] target URL
        %s maven-build --ini=CONFIG... [options] target
@@ -482,7 +489,7 @@ Task info: weburl/taskinfo?taskID=1
         # args: --ini=config1.ini --ini=config2.ini --section=section target
         # expected: failed, ValueError raised when parsing .ini files
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual = stderr.getvalue()
         expected = """Usage: %s maven-build [options] target URL
        %s maven-build --ini=CONFIG... [options] target
@@ -499,11 +506,11 @@ Task info: weburl/taskinfo?taskID=1
         self.assertEqual(cm.exception.code, 2)
 
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     @mock.patch('koji.util.parse_maven_param')
     @mock.patch('koji.util.maven_opts')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_build_invalid_scm(
             self,
             watch_tasks_mock,
@@ -519,8 +526,8 @@ Task info: weburl/taskinfo?taskID=1
         dest_tag_info = {'id': 2, 'name': dest_tag, 'locked': False}
         source = 'badscm'
         args = [target, source]
-        scratch = None
-        build_opts = EMPTY_BUILD_OPTS.copy()
+        #scratch = None
+        #build_opts = EMPTY_BUILD_OPTS.copy()
         progname = os.path.basename(sys.argv[0]) or 'koji'
 
         self.session.getBuildTarget.return_value = target_info
@@ -529,7 +536,7 @@ Task info: weburl/taskinfo?taskID=1
         # args: target badscm
         # expected: failed, scm is invalid
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_maven_build(self.options, self.session, args)
+            handle_maven_build(self.options, self.session, args)
         actual = stderr.getvalue()
         expected = """Usage: %s maven-build [options] target URL
        %s maven-build --ini=CONFIG... [options] target
@@ -539,11 +546,14 @@ Task info: weburl/taskinfo?taskID=1
 """ % (progname, progname, progname)
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         parse_maven_param_mock.assert_not_called()
-        maven_opts_mock.assert_called_once_with(build_opts, scratch=scratch)
+        #maven_opts_mock.assert_called_once_with(build_opts, scratch=scratch)
+        #maven_opts_mock.assert_not_called()
+        maven_opts_mock.assert_called_once()
         running_in_bg_mock.assert_not_called()
         self.session.mavenBuild.assert_not_called()
         self.session.logout.assert_not_called()
@@ -551,11 +561,11 @@ Task info: weburl/taskinfo?taskID=1
         self.assertEqual(cm.exception.code, 2)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     @mock.patch('koji.util.parse_maven_param')
     @mock.patch('koji.util.maven_opts', return_value={})
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_build_other_params(
             self,
             watch_tasks_mock,
@@ -587,14 +597,15 @@ Task info: weburl/taskinfo?taskID=1
         # Run it and check immediate output
         # args: --debug --skip-tag --background target http://scm
         # expected: success
-        rv = cli.handle_maven_build(self.options, self.session, args)
+        rv = handle_maven_build(self.options, self.session, args)
         actual = stdout.getvalue()
         expected = """Created task: 1
 Task info: weburl/taskinfo?taskID=1
 """
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         parse_maven_param_mock.assert_not_called()
@@ -604,7 +615,8 @@ Task info: weburl/taskinfo?taskID=1
             source, target, opts, priority=priority)
         self.session.logout.assert_called_once()
         watch_tasks_mock.assert_called_once_with(
-            self.session, [task_id], quiet=build_opts['quiet'])
+            self.session, [task_id], quiet=self.options.quiet,
+            poll_interval=0)
         self.assertEqual(rv, 0)
 
         stdout.seek(0)
@@ -626,16 +638,16 @@ Task info: weburl/taskinfo?taskID=1
         # Run it and check immediate output
         # args: --debug --skip-tag --background -Mtest -Mtest2=val target http://scm
         # expected: success
-        cli.handle_maven_build(self.options, self.session, args)
+        handle_maven_build(self.options, self.session, args)
         self.assertMultiLineEqual(actual, expected)
         maven_opts_mock.assert_called_once_with(build_opts, scratch=scratch)
         self.session.mavenBuild.assert_called_once_with(
             source, target, opts, priority=priority)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_quiet(
             self,
             watch_tasks_mock,
@@ -660,12 +672,13 @@ Task info: weburl/taskinfo?taskID=1
         # Run it and check immediate output
         # args: --quiet target http://scm
         # expected: success
-        rv = cli.handle_maven_build(self.options, self.session, args)
+        rv = handle_maven_build(self.options, self.session, args)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         self.session.mavenBuild.assert_called_once_with(
@@ -673,13 +686,14 @@ Task info: weburl/taskinfo?taskID=1
         running_in_bg_mock.assert_called_once()
         self.session.logout.assert_called()
         watch_tasks_mock.assert_called_once_with(
-            self.session, [task_id], quiet=self.options.quiet)
+            self.session, [task_id], quiet=self.options.quiet,
+            poll_interval=0)
         self.assertEqual(rv, 0)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
-    @mock.patch('koji_cli._running_in_bg', return_value=True)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands.activate_session')
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=True)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_quiet(
             self,
             watch_tasks_mock,
@@ -703,14 +717,15 @@ Task info: weburl/taskinfo?taskID=1
         # Run it and check immediate output
         # args: target http://scm
         # expected: success
-        rv = cli.handle_maven_build(self.options, self.session, args)
+        rv = handle_maven_build(self.options, self.session, args)
         actual = stdout.getvalue()
         expected = """Created task: 1
 Task info: weburl/taskinfo?taskID=1
 """
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         self.session.mavenBuild.assert_called_once_with(
@@ -721,11 +736,11 @@ Task info: weburl/taskinfo?taskID=1
         self.assertIsNone(rv)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     @mock.patch('koji.util.parse_maven_param')
     @mock.patch('koji.util.maven_opts', return_value={})
-    @mock.patch('koji_cli._running_in_bg', return_value=False)
-    @mock.patch('koji_cli.watch_tasks', return_value=0)
+    @mock.patch('koji_cli.commands._running_in_bg', return_value=False)
+    @mock.patch('koji_cli.commands.watch_tasks', return_value=0)
     def test_handle_maven_build_nowait(
             self,
             watch_tasks_mock,
@@ -754,14 +769,15 @@ Task info: weburl/taskinfo?taskID=1
         # Run it and check immediate output
         # args: target http://scm
         # expected: success
-        rv = cli.handle_maven_build(self.options, self.session, args)
+        rv = handle_maven_build(self.options, self.session, args)
         actual = stdout.getvalue()
         expected = """Created task: 1
 Task info: weburl/taskinfo?taskID=1
 """
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(self.session)
+        activate_session_mock.assert_called_once_with(self.session,
+                self.options)
         self.session.getBuildTarget.assert_called_once_with(target)
         self.session.getTag.assert_called_once_with(dest_tag_id)
         parse_maven_param_mock.assert_not_called()

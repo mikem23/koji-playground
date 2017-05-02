@@ -1,17 +1,10 @@
 import unittest
-
 import StringIO as stringio
-
 import os
-
 import sys
-
 import mock
 
-import loadcli
-
-cli = loadcli.cli
-
+from koji_cli.commands import handle_rename_channel
 
 class TestRenameChannel(unittest.TestCase):
 
@@ -19,13 +12,14 @@ class TestRenameChannel(unittest.TestCase):
     maxDiff = None
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_rename_channel(self, activate_session_mock, stdout):
         old_name = 'old_name'
         new_name = 'new_name'
         channel_info = mock.ANY
         args = [old_name, new_name]
         options = mock.MagicMock()
+        options.debug = False
 
         # Mock out the xmlrpc server
         session = mock.MagicMock()
@@ -34,18 +28,18 @@ class TestRenameChannel(unittest.TestCase):
         # Run it and check immediate output
         # args: old_name, new_name
         # expected: success
-        rv = cli.handle_rename_channel(options, session, args)
+        rv = handle_rename_channel(options, session, args)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.getChannel.assert_called_once_with(old_name)
         session.renameChannel.assert_called_once_with(old_name, new_name)
         self.assertNotEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_rename_channel_no_channel(
             self, activate_session_mock, stdout):
         old_name = 'old_name'
@@ -53,6 +47,7 @@ class TestRenameChannel(unittest.TestCase):
         channel_info = None
         args = [old_name, new_name]
         options = mock.MagicMock()
+        options.debug = False
 
         # Mock out the xmlrpc server
         session = mock.MagicMock()
@@ -61,23 +56,24 @@ class TestRenameChannel(unittest.TestCase):
         # Run it and check immediate output
         # args: old_name, new_name
         # expected: failed: no such channel
-        rv = cli.handle_rename_channel(options, session, args)
+        rv = handle_rename_channel(options, session, args)
         actual = stdout.getvalue()
         expected = 'No such channel: old_name\n'
         self.assertMultiLineEqual(actual, expected)
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.getChannel.assert_called_once_with(old_name)
         session.renameChannel.assert_not_called()
         self.assertEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_rename_channel_help(
             self, activate_session_mock, stderr, stdout):
         args = []
         options = mock.MagicMock()
+        options.debug = False
         progname = os.path.basename(sys.argv[0]) or 'koji'
 
         # Mock out the xmlrpc server
@@ -85,7 +81,7 @@ class TestRenameChannel(unittest.TestCase):
 
         # Run it and check immediate output
         with self.assertRaises(SystemExit) as cm:
-            cli.handle_rename_channel(options, session, args)
+            handle_rename_channel(options, session, args)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = ''
