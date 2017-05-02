@@ -61,6 +61,15 @@ Requires: %{name} = %{version}-%{release}
 %description hub
 koji-hub is the XMLRPC interface to the koji database
 
+%package cli-plugins
+Summary: Koji client plugins
+Group: Applications/Internet
+License: LGPLv2
+Requires: %{name} = %{version}-%{release}
+
+%description cli-plugins
+Plugins to the koji command-line interface
+
 %package hub-plugins
 Summary: Koji hub plugins
 Group: Applications/Internet
@@ -197,6 +206,7 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root)
 %{_bindir}/*
 %{python_sitelib}/%{name}
+%{python_sitelib}/koji_cli
 %config(noreplace) %{_sysconfdir}/koji.conf
 %dir %{_sysconfdir}/koji.conf.d
 %doc docs Authors COPYING LGPL
@@ -210,6 +220,14 @@ rm -rf $RPM_BUILD_ROOT
 %dir %{_sysconfdir}/koji-hub
 %config(noreplace) %{_sysconfdir}/koji-hub/hub.conf
 %dir %{_sysconfdir}/koji-hub/hub.conf.d
+
+%files cli-plugins
+%defattr(-,root,root)
+%dir %{python_sitelib}/koji_cli_plugins
+%{python_sitelib}/koji_cli_plugins/*.py*
+%dir %{_sysconfdir}/koji/plugins
+# we don't have config files for default plugins yet
+#%%config(noreplace) %{_sysconfdir}/koji/plugins/*.conf
 
 %files hub-plugins
 %defattr(-,root,root)
