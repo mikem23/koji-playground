@@ -66,7 +66,7 @@ git-clean:
 
 test:
 	coverage erase
-	PYTHONPATH=hub/.:plugins/hub/.:plugins/builder/. nosetests --with-coverage --cover-package .
+	PYTHONPATH=hub/.:plugins/hub/.:plugins/builder/.:cli/plugins/cli/.:cli/. nosetests --with-coverage --cover-package .
 	coverage html
 	@echo Coverage report in htmlcov/index.html
 
