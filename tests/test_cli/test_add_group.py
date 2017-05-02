@@ -1,17 +1,10 @@
 import unittest
-
 import StringIO as stringio
-
 import os
-
 import sys
-
 import mock
 
-import loadcli
-
-cli = loadcli.cli
-
+from koji_cli.commands import handle_add_group
 
 class TestAddGroup(unittest.TestCase):
 
@@ -19,7 +12,7 @@ class TestAddGroup(unittest.TestCase):
     maxDiff = None
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_add_group(self, activate_session_mock, stdout):
         tag = 'tag'
         group = 'group'
@@ -34,13 +27,13 @@ class TestAddGroup(unittest.TestCase):
             {'name': 'otherGroup', 'group_id': 'otherGroupId'}]
 
         # Run it and check immediate output
-        rv = cli.handle_add_group(options, session, arguments)
+        rv = handle_add_group(options, session, arguments)
         actual = stdout.getvalue()
         expected = ''
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.hasPerm.assert_called_once_with('admin')
         session.getTag.assert_called_once_with(tag)
         session.getTagGroups.assert_called_once_with(tag, inherit=False)
@@ -48,7 +41,7 @@ class TestAddGroup(unittest.TestCase):
         self.assertNotEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_add_group_dupl(self, activate_session_mock, stdout):
         tag = 'tag'
         group = 'group'
@@ -63,13 +56,13 @@ class TestAddGroup(unittest.TestCase):
             {'name': 'group', 'group_id': 'groupId'}]
 
         # Run it and check immediate output
-        rv = cli.handle_add_group(options, session, arguments)
+        rv = handle_add_group(options, session, arguments)
         actual = stdout.getvalue()
         expected = 'Group group already exists for tag tag\n'
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.hasPerm.assert_called_once_with('admin')
         session.getTag.assert_called_once_with(tag)
         session.getTagGroups.assert_called_once_with(tag, inherit=False)
@@ -78,7 +71,7 @@ class TestAddGroup(unittest.TestCase):
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
     @mock.patch('sys.stderr', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_add_group_help(
             self,
             activate_session_mock,
@@ -92,7 +85,7 @@ class TestAddGroup(unittest.TestCase):
 
         # Run it and check immediate output
         with self.assertRaises(SystemExit) as cm:
-            rv = cli.handle_add_group(options, session, arguments)
+            handle_add_group(options, session, arguments)
         actual_stdout = stdout.getvalue()
         actual_stderr = stderr.getvalue()
         expected_stdout = ''
@@ -114,7 +107,7 @@ class TestAddGroup(unittest.TestCase):
         self.assertEqual(cm.exception.code, 2)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_add_group_no_perm(self, activate_session_mock, stdout):
         tag = 'tag'
         group = 'group'
@@ -126,13 +119,13 @@ class TestAddGroup(unittest.TestCase):
         session.hasPerm.return_value = False
 
         # Run it and check immediate output
-        rv = cli.handle_add_group(options, session, arguments)
+        rv = handle_add_group(options, session, arguments)
         actual = stdout.getvalue()
         expected = 'This action requires admin privileges\n'
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.hasPerm.assert_called_once_with('admin')
         session.getTag.assert_not_called()
         session.getTagGroups.assert_not_called()
@@ -140,26 +133,26 @@ class TestAddGroup(unittest.TestCase):
         self.assertEqual(rv, 1)
 
     @mock.patch('sys.stdout', new_callable=stringio.StringIO)
-    @mock.patch('koji_cli.activate_session')
+    @mock.patch('koji_cli.commands.activate_session')
     def test_handle_add_group_no_tag(self, activate_session_mock, stdout):
         tag = 'tag'
         group = 'group'
         arguments = [tag, group]
-        options = mock.MagicMock()
+        options = mock.MagicMock(name='options')
 
         # Mock out the xmlrpc server
-        session = mock.MagicMock()
+        session = mock.MagicMock(name='session')
         session.hasPerm.return_value = True
         session.getTag.return_value = None
 
         # Run it and check immediate output
-        rv = cli.handle_add_group(options, session, arguments)
+        rv = handle_add_group(options, session, arguments)
         actual = stdout.getvalue()
         expected = 'Unknown tag: tag\n'
         self.assertMultiLineEqual(actual, expected)
 
         # Finally, assert that things were called as we expected.
-        activate_session_mock.assert_called_once_with(session)
+        activate_session_mock.assert_called_once_with(session, options)
         session.hasPerm.assert_called_once_with('admin')
         session.getTag.assert_called_once_with(tag)
         session.getTagGroups.assert_not_called()

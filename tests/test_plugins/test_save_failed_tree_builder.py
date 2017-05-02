@@ -5,7 +5,6 @@ import unittest
 
 # alter pythonpath to not load hub plugin
 sys.path = [os.path.join(os.path.dirname(__file__), '../../plugins/builder')] + sys.path
-#raise(Exception(sys.path))
 
 import koji
 # inject builder data
