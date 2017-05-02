@@ -430,8 +430,10 @@ def _progress_callback(uploaded, total, piece, time, total_time):
 def _running_in_bg():
     try:
         return (not os.isatty(0)) or (os.getpgrp() != os.tcgetpgrp(0))
-    except OSError, e:
+    except OSError:
         return True
+
+
 def linked_upload(localfile, path, name=None):
     """Link a file into the (locally writable) workdir, bypassing upload"""
     old_umask = os.umask(002)
