@@ -1,3 +1,50 @@
+import ConfigParser
+import base64
+import dateutil.parser
+import fnmatch
+import logging
+import os
+import pprint
+import random
+import re
+import stat
+import sys
+import time
+import traceback
+import urlgrabber.grabber as grabber
+import urlgrabber.progress as progress
+try:
+    import ast
+except ImportError:  # pragma: no cover
+    ast = None
+try:
+    import json
+except ImportError:  # pragma: no cover
+    try:
+        import simplejson as json
+    except ImportError:
+        json = None
+try:
+    import libcomps
+except ImportError:  # pragma: no cover
+    libcomps = None
+    try:
+        import yum.comps as yumcomps
+    except ImportError:
+        yumcomps = None
+
+import koji
+from koji.util import md5_constructor
+from koji_cli.lib import _, activate_session, error, OptionParser, \
+                         _unique_path, _running_in_bg, _progress_callback, \
+                         watch_tasks, arg_filter, linked_upload, \
+                         parse_arches, print_task_headers, \
+                         print_task_recurse, watch_logs, greetings
+
+# logger was setup in main cli koji file
+logger = logging.getLogger("koji")
+
+
 def handle_add_group(options, session, args):
     "[admin] Add a group to a tag"
     usage = _("usage: %prog add-group <tag> <group>")
