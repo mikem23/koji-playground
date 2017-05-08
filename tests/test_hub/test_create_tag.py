@@ -58,6 +58,7 @@ class TestCreateTag(unittest.TestCase):
             'locked': False,
             'maven_include_all': False,
             'maven_support': False,
+            'namespace_id': 0,
             'perm_id': None,
             'tag_id': 99,
         }

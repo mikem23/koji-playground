@@ -2914,7 +2914,9 @@ def create_tag(name, parent=None, arches=None, perm=None, locked=False,
                 maven_include_all, extra, namespace)
 
 
-def _create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_support=False, maven_include_all=False, extra=None):
+def _create_tag(name, parent=None, arches=None, perm=None, locked=False,
+            maven_support=False, maven_include_all=False, extra=None,
+            namespace=-1):
     """Create a new tag, without access check"""
 
     max_name_length = 256
@@ -2940,8 +2942,11 @@ def _create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_s
 
     # figure out namespace
     if namespace == -1:
-        # use parent's namespace
-        namespace_id = parent_tag['namespace_id']
+        # copy parent or use default
+        if parent:
+            namespace_id = parent_tag['namespace_id']
+        else:
+            namespace_id = 0
     else:
         namespace_id = lookup_namespace(namespace, strict=True)['id']
 
