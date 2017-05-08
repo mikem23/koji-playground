@@ -5106,7 +5106,7 @@ def new_build(data):
     insert_data = dslice(data, ['pkg_id', 'version', 'release', 'epoch', 'state', 'volume_id',
                          'namespace_id', 'task_id', 'owner', 'start_time', 'completion_time',
                          'source', 'extra'])
-    data['id'] = insert_data['id'] = _singleValue("SELECT nextval('build_id_seq')")
+    data['id'] = insert_data['id'] = nextval('build_id_seq')
     insert = InsertProcessor('build', data=insert_data)
     insert.execute()
     koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=None, new=data['state'], info=data)
