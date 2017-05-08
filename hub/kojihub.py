@@ -1096,6 +1096,8 @@ def list_tags(build=None, package=None, queryOpts=None):
       - perm
       - arches
       - locked
+      - namespace_id
+      - namespace
 
     If package is specified, each map will also contain:
       - owner_id
@@ -1108,13 +1110,18 @@ def list_tags(build=None, package=None, queryOpts=None):
 
     tables = ['tag_config']
     joins = ['tag ON tag.id = tag_config.tag_id',
+             'LEFT OUTER JOIN namespace ON namespace.id = tag_config.namespace_id',
              'LEFT OUTER JOIN permissions ON tag_config.perm_id = permissions.id']
-    fields = ['tag.id', 'tag.name', 'tag_config.perm_id', 'permissions.name',
-              'tag_config.arches', 'tag_config.locked', 'tag_config.maven_support',
-              'tag_config.maven_include_all']
-    aliases = ['id', 'name', 'perm_id', 'perm',
-               'arches', 'locked', 'maven_support',
-               'maven_include_all']
+    fields = [('tag.id', 'id'),
+              ('tag.name', 'name'),
+              ('tag_config.perm_id', 'perm_id'),
+              ('permissions.name', 'perm'),
+              ('tag_config.arches', 'arches'),
+              ('tag_config.locked', 'locked'),
+              ('tag_config.maven_support', 'maven_support'),
+              ('tag_config.maven_include_all', 'maven_include_all'),
+              ('tag_config.namespace_id', 'namespace_id'),
+              ('namespace.name', 'namespace')]
     clauses = ['tag_config.active = true']
 
     if build is not None:
@@ -1130,14 +1137,17 @@ def list_tags(build=None, package=None, queryOpts=None):
         packageinfo = lookup_package(package)
         if not packageinfo:
             raise koji.GenericError('invalid package: %s' % package)
-        fields.extend(['users.id', 'users.name', 'tag_packages.blocked', 'tag_packages.extra_arches'])
-        aliases.extend(['owner_id', 'owner_name', 'blocked', 'extra_arches'])
+        fields.extend([('users.id', 'owner_id'),
+                       ('users.name', 'owner_name'),
+                       ('tag_packages.blocked', 'blocked'),
+                       ('tag_packages.extra_arches', 'extra_arches')])
         joins.append('tag_packages ON tag.id = tag_packages.tag_id')
         clauses.append('tag_packages.active = true')
         clauses.append('tag_packages.package_id = %(packageID)i')
         joins.append('users ON tag_packages.owner = users.id')
         packageID = packageinfo['id']
 
+    fields, aliases = zip(*fields)
     query = QueryProcessor(columns=fields, aliases=aliases, tables=tables,
                            joins=joins, clauses=clauses, values=locals(),
                            opts=queryOpts)
@@ -1176,6 +1186,7 @@ def readTaggedBuilds(tag, event=None, inherit=False, latest=False, package=None,
               ('build.task_id', 'task_id'),
               ('events.id', 'creation_event_id'), ('events.time', 'creation_time'),
               ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+              ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
               ('package.id', 'package_id'), ('package.name', 'package_name'),
               ('package.name', 'name'),
               ("package.name || '-' || build.version || '-' || build.release", 'nvr'),
@@ -1213,6 +1224,7 @@ def readTaggedBuilds(tag, event=None, inherit=False, latest=False, package=None,
     JOIN events ON events.id = build.create_event
     JOIN package ON package.id = build.pkg_id
     JOIN volume ON volume.id = build.volume_id
+    LEFT OUTER JOIN namespace ON namespace.id = build.namespace_id
     WHERE %s AND tag_id=%%(tagid)s
         AND build.state=%%(st_complete)i
     """ % (', '.join([pair[0] for pair in fields]), type_join, eventCondition(event, 'tag_listing'))
@@ -2206,6 +2218,7 @@ def maven_tag_archives(tag_id, event_id=None, inherit=True):
               ('build.state', 'state'), ('build.task_id', 'task_id'),
               ('build.owner', 'owner'),
               ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+              ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
               ('archiveinfo.id', 'id'), ('archiveinfo.type_id', 'type_id'),
               ('archiveinfo.buildroot_id', 'buildroot_id'),
               ('archiveinfo.filename', 'filename'), ('archiveinfo.size', 'size'),
@@ -2221,6 +2234,7 @@ def maven_tag_archives(tag_id, event_id=None, inherit=True):
     joins = ['tag ON tag_listing.tag_id = tag.id',
              'build ON tag_listing.build_id = build.id',
              'volume ON build.volume_id = volume.id',
+             'LEFT OUTER JOIN namespace ON build.namespace_id = namespace.id',
              'package ON build.pkg_id = package.id',
              'archiveinfo ON build.id = archiveinfo.build_id',
              'maven_archives ON archiveinfo.id = maven_archives.archive_id']
@@ -2385,6 +2399,7 @@ def repo_init(tag, with_src=False, with_debuginfo=False, event=None):
                          'release': archive['build_release'],
                          'epoch': archive['build_epoch'],
                          'volume_name': archive['volume_name'],
+                         'namespace': archive['namespace'],
                         }
             srcdir = os.path.join(koji.pathinfo.mavenbuild(buildinfo),
                                   koji.pathinfo.mavenrepo(archive))
@@ -2868,11 +2883,35 @@ def lookup_build_target(info, strict=False, create=False):
     """Get the id,name for build target"""
     return lookup_name('build_target', info, strict, create)
 
+def lookup_namespace(info, strict=False, create=False):
+    if info is None or info == 'NULL':
+        #None represents a valid namespace, but is not in the table
+        return {'id': None, 'name': 'NULL'}
+    return lookup_name('namespace', info, strict, create)
 
-def create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_support=False, maven_include_all=False, extra=None):
-    """Create a new tag"""
+
+def create_tag(name, parent=None, arches=None, perm=None, locked=False,
+            maven_support=False, maven_include_all=False, extra=None,
+            namespace=-1):
+    """Create a new tag
+
+    Required args:
+        name - the name of the tag
+
+    Optional args:
+        parent - another tag for this one to inherit from
+        arches - tag architecture list (space separated)
+        perm - set required permission for tagging
+        locked - (boolean) mark the tag as locked
+        maven_support - (boolean) set the maven support flag
+        maven_include_all - (boolean) for maven repos created from this tag
+                include all versions, not just latest
+        namespace - set required namespace for this tag
+    """
+
     context.session.assertPerm('admin')
-    return _create_tag(name, parent, arches, perm, locked, maven_support, maven_include_all, extra)
+    return _create_tag(name, parent, arches, perm, locked, maven_support,
+                maven_include_all, extra, namespace)
 
 
 def _create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_support=False, maven_include_all=False, extra=None):
@@ -2899,12 +2938,20 @@ def _create_tag(name, parent=None, arches=None, perm=None, locked=False, maven_s
     else:
         parent_id = None
 
+    # figure out namespace
+    if namespace == -1:
+        # use parent's namespace
+        namespace_id = parent_tag['namespace_id']
+    else:
+        namespace_id = lookup_namespace(namespace, strict=True)['id']
+
     #there may already be an id for a deleted tag, this will reuse it
     tag_id = get_tag_id(name, create=True)
 
     insert = InsertProcessor('tag_config')
     insert.set(tag_id=tag_id, arches=arches, perm_id=perm, locked=locked)
     insert.set(maven_support=maven_support, maven_include_all=maven_include_all)
+    insert.set(tag_id=tag_id, namespace_id=namespace_id)
     insert.make_create()
     insert.execute()
 
@@ -2956,6 +3003,7 @@ def get_tag(tagInfo, strict=False, event=None):
 
     tables = ['tag_config']
     joins = ['tag ON tag.id = tag_config.tag_id',
+             'LEFT OUTER JOIN namespace ON namespace.id = tag_config.namespace_id',
              'LEFT OUTER JOIN permissions ON tag_config.perm_id = permissions.id']
     fields = {'tag.id': 'id',
               'tag.name': 'name',
@@ -2964,7 +3012,9 @@ def get_tag(tagInfo, strict=False, event=None):
               'tag_config.arches': 'arches',
               'tag_config.locked': 'locked',
               'tag_config.maven_support': 'maven_support',
-              'tag_config.maven_include_all': 'maven_include_all'
+              'tag_config.maven_include_all': 'maven_include_all',
+              'tag_config.namespace_id': 'namespace_id',
+              'namespace.name': 'namespace',
              }
     clauses = [eventCondition(event, table='tag_config')]
     if isinstance(tagInfo, (int, long)):
@@ -2979,11 +3029,12 @@ def get_tag(tagInfo, strict=False, event=None):
     query = QueryProcessor(columns=fields, aliases=aliases, tables=tables,
                            joins=joins, clauses=clauses, values=data)
     result = query.executeOne()
+
     if not result:
         if strict:
             raise koji.GenericError("Invalid tagInfo: %r" % tagInfo)
         return None
-    result['extra'] = get_tag_extra(result)
+    result['extra'] = get_tag_extra(result, event=event)
     return result
 
 
@@ -3015,6 +3066,7 @@ def edit_tag(tagInfo, **kwargs):
                            versions of the same package) in the Maven repo
         extra: add or update extra tag parameters (dictionary)
         remove_extra: remove extra tag parameters (list)
+        namespace: the namespace associated with the tag
     """
 
     context.session.assertPerm('admin')
@@ -3033,6 +3085,9 @@ def _edit_tag(tagInfo, **kwargs):
             kwargs['perm_id'] = None
         else:
             kwargs['perm_id'] = get_perm_id(kwargs['perm'], strict=True)
+    if kwargs.has_key('namespace'):
+        kwargs['namespace_id'] = lookup_namespace(namespace, strict=True)['id']
+        # XXX ugh, are we really updating kwargs?
 
     name = kwargs.get('name')
     if name and tag['name'] != name:
@@ -3437,32 +3492,51 @@ def get_user(userInfo=None, strict=False):
 def find_build_id(X, strict=False):
     if isinstance(X, int) or isinstance(X, long):
         return X
-    elif isinstance(X, str):
+    elif isinstance(X, basestring):
         data = koji.parse_NVR(X)
     elif isinstance(X, dict):
         data = X
     else:
         raise koji.GenericError("Invalid argument: %r" % X)
 
-    if not ('name' in data and 'version' in data and 'release' in data):
-        raise koji.GenericError('did not provide name, version, and release')
+    for key in 'name', 'version', 'release':
+        if key not in data:
+            raise koji.GenericError, 'Invalid build specification: no value for %s' % key
 
-    c = context.cnx.cursor()
-    q = """SELECT build.id FROM build JOIN package ON build.pkg_id=package.id
-    WHERE package.name=%(name)s AND build.version=%(version)s
-    AND build.release=%(release)s
-    """
-    # contraints should ensure this is unique
-    #log_error(koji.db._quoteparams(q,data))
-    c.execute(q, data)
-    r = c.fetchone()
-    #log_error("%r" % r )
-    if not r:
-        if strict:
-            raise koji.GenericError('No matching build found: %r' % X)
+    clauses = ['package.name = %(name)s', 'build.version = %(version)s', 'build.release=%(release)s']
+    joins = ['package ON build.pkg_id = package.id']
+    if 'namespace_id' in data:
+        # explicitly passed in via dict
+        if data['namespace_id'] is None:
+            clauses.append('build.namespace_id IS NULL')
         else:
-            return None
-    return r[0]
+            clauses.append('build.namespace_id = %(namespace_id)s')
+    elif 'namespace' in data:
+        # passed in via dict or :: prefix on nvr
+        if data['namespace'] is None:
+            clauses.append('build.namespace_id IS NULL')
+        else:
+            joins.append('namespace ON build.namespace_id = namespace.id')
+            clauses.append('namespace.name = %(namespace)s')
+    query = QueryProcessor(tables=['build'], joins=joins, columns=['build.id', 'build.namespace_id'],
+                           clauses=clauses, values=data,
+                           opts={'order': '-build.id', 'asList': True})
+    builds = query.execute()
+
+    if not builds:
+        if strict:
+            raise koji.GenericError, "No matching build found: %s" % X
+        return None
+    if len(builds) == 1:
+        return builds[0][0]
+    # multiple builds, choose default namespace first
+    if strict:
+        raise koji.GenericError, "Multiple matching builds for: %r" % X
+    for row in builds:
+        if row[1] == 0:
+            return row[0]
+    #otherwise first match
+    return builds[0][0]
 
 
 def get_build(buildInfo, strict=False):
@@ -3486,6 +3560,8 @@ def get_build(buildInfo, strict=False):
       owner_name: name of the user who kicked off the build
       volume_id: ID of the storage volume
       volume_name: name of the storage volume
+      namespace_id: ID of the build namespace
+      namespace: name of the build namespace
       creation_event_id: id of the create_event
       creation_time: time the build was created (text)
       creation_ts: time the build was created (epoch)
@@ -3499,6 +3575,14 @@ def get_build(buildInfo, strict=False):
     If there is no build matching the buildInfo given, and strict is specified,
     raise an error.  Otherwise return None.
     """
+    return _get_build(buildInfo, strict=strict)
+
+
+def _get_build(buildInfo, strict=False, lock=False):
+    """As get_build, but an additional option
+
+    If lock is True, then acquire a row lock on the build
+    """
     buildID = find_build_id(buildInfo, strict=strict)
     if buildID == None:
         return None
@@ -3510,6 +3594,7 @@ def get_build(buildInfo, strict=False):
               ('build.task_id', 'task_id'), ('events.id', 'creation_event_id'), ('events.time', 'creation_time'),
               ('package.id', 'package_id'), ('package.name', 'package_name'), ('package.name', 'name'),
               ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+              ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
               ("package.name || '-' || build.version || '-' || build.release", 'nvr'),
               ('EXTRACT(EPOCH FROM events.time)', 'creation_ts'),
               ('EXTRACT(EPOCH FROM build.start_time)', 'start_ts'),
@@ -3522,11 +3607,14 @@ def get_build(buildInfo, strict=False):
              'package on build.pkg_id = package.id',
              'volume on build.volume_id = volume.id',
              'users on build.owner = users.id',
+             'LEFT OUTER JOIN namespace on build.namespace_id = namespace.id',
             ]
     clauses = ['build.id = %(buildID)i']
     query = QueryProcessor(columns=fields, aliases=aliases, values=locals(),
                            transform=_fix_extra_field,
                            tables=['build'], joins=joins, clauses=clauses)
+    if lock:
+        query.rowlock = ['build']
     result = query.executeOne()
 
     if not result:
@@ -3584,10 +3672,9 @@ def get_rpm(rpminfo, strict=False, multi=False):
 
     rpminfo may be any one of the following:
     - a int ID
-    - a string N-V-R.A
-    - a string N-V-R.A@location
+    - any form understood by koji.parse_NVRA
     - a map containing 'name', 'version', 'release', and 'arch'
-      (and optionally 'location')
+      (optional: 'location', 'namespace', 'namespace_id')
 
     If specified, location should match the name of an external repo
 
@@ -3648,6 +3735,21 @@ def get_rpm(rpminfo, strict=False, multi=False):
     else:
         clauses.append("""rpminfo.name=%(name)s AND version=%(version)s
         AND release=%(release)s AND arch=%(arch)s""")
+
+    if 'namespace_id' in data:
+        # explicitly passed in via dict
+        if data['namespace_id'] is None:
+            clauses.append('rpminfo.namespace_id IS NULL')
+        else:
+            clauses.append('rpminfo.namespace_id = %(namespace_id)i')
+    elif 'namespace' in data:
+        # passed in via dict or :: prefix on nvr
+        if data['namespace'] is None or data['namespace'] == 'NULL':
+            clauses.append('rpminfo.namespace_id IS NULL')
+        else:
+            joins.append('namespace ON rpminfo.namespace_id = namespace.id')
+            clauses.append('namespace.name = %(namespace)s')
+
     retry = False
     if 'location' in data:
         data['external_repo_id'] = get_external_repo_id(data['location'], strict=True)
@@ -4736,10 +4838,7 @@ def change_build_volume(build, volume, strict=True):
 
     #Fourth, maintain a symlink if appropriate
     if volinfo['name'] and volinfo['name'] != 'DEFAULT':
-        base_vol = lookup_name('volume', 'DEFAULT', strict=True)
-        base_binfo = binfo.copy()
-        base_binfo['volume_id'] = base_vol['id']
-        base_binfo['volume_name'] = base_vol['name']
+        base_binfo = get_base_binfo(binfo)
         basedir = koji.pathinfo.build(base_binfo)
         if os.path.islink(basedir):
             os.unlink(basedir)
@@ -4747,6 +4846,211 @@ def change_build_volume(build, volume, strict=True):
         os.symlink(relpath, basedir)
 
     koji.plugin.run_callbacks('postBuildStateChange', attribute='volume_id', old=old_binfo['volume_id'], new=volinfo['id'], info=binfo)
+
+
+def get_base_binfo(binfo):
+    """Returns a copy of binfo with volume data mangled to default"""
+    base_vol = lookup_name('volume', 'DEFAULT', strict=True)
+    base_binfo = binfo.copy()
+    base_binfo['volume_id'] = base_vol['id']
+    base_binfo['volume_name'] = base_vol['name']
+    return base_binfo
+
+
+def add_namespace(name, strict=True):
+    """Add a new build namespace in the database"""
+    context.session.assertPerm('admin')
+    if strict:
+        info = lookup_namespace(name, strict=False)
+        if info:
+            raise koji.GenericError, 'namespace %s already exists' % name
+    if not isinstance(name, basestring):
+        raise koji.GenericError, 'Name must be a string'
+    if len(name) == 0:
+        raise koji.GenericError, 'The empty string may not be used as a namespace'
+    if name.find('::') != -1:
+        raise koji.GenericError, 'Namespaces may not contain ::'
+    info = lookup_namespace(name, strict=False, create=True)
+    return info
+
+def remove_namespace(namespace):
+    """Remove unused build namespace from the database"""
+    context.session.assertPerm('admin')
+    info = lookup_namespace(namespace, strict=True)
+    query = QueryProcessor(tables=['build'], clauses=['namespace_id=%(id)i'],
+                    values=info, columns=['id'], opts={'limit':1})
+    if query.execute():
+        raise koji.GenericError, 'namespace %(name)s has build references' % info
+    query = QueryProcessor(tables=['rpminfo'], clauses=['namespace_id=%(id)i'],
+                    values=info, columns=['id'], opts={'limit':1})
+    if query.execute():
+        raise koji.GenericError, 'namespace %(name)s has rpm references' % info
+    delete = """DELETE FROM namespace WHERE id=%(id)i"""
+    _dml(delete, info)
+
+def list_namespaces():
+    """List known namespaces"""
+    return QueryProcessor(tables=['namespace'], columns=['id', 'name']).execute()
+
+def change_build_namespace(build, namespace, strict=True):
+    """Move a build to a different namespace
+
+    If strict is True (the default), then the call will error if the build is
+    already in the requested namespace.
+    """
+    context.session.assertPerm('admin')
+    if namespace is None:
+        nsinfo = {'id': None, 'name':None}
+    else:
+        nsinfo = lookup_namespace(namespace, strict=True)
+    binfo = _get_build(build, strict=True, lock=True)
+    state = koji.BUILD_STATES[binfo['state']]
+    if state not in ['COMPLETE', 'DELETED']:
+        raise koji.GenericError, "Build %s is %s" % (binfo['nvr'], state)
+    if binfo['namespace_id'] == nsinfo['id']:
+        if strict:
+            raise koji.GenericError, "Build %(nvr)s already in namespace %(namespace)s" % binfo
+        else:
+            #nothing to do
+            return
+    if state == 'COMPLETE':
+        # sanity check, and migrate to new layout if needed
+        check_build_dirs(binfo, fix=True)
+
+    # TODO check for conflicts
+
+    # Update the db
+    old_binfo = binfo
+    binfo = binfo.copy()
+    binfo['namespace_id'] = nsinfo['id']
+    binfo['namespace'] = nsinfo['name']
+    koji.plugin.run_callbacks('preBuildStateChange', attribute='namespace_id',
+                old=old_binfo['namespace_id'], new=nsinfo['id'], info=binfo)
+    update = UpdateProcessor('build', clauses=['id=%(id)i'], values=binfo)
+    update.set(namespace_id=nsinfo['id'])
+    update.execute()
+    update = UpdateProcessor('rpminfo', clauses=['build_id=%(id)i'], values=binfo)
+    update.set(namespace_id=nsinfo['id'])
+    update.execute()
+
+    if state != 'COMPLETE':
+        return
+
+    # handle old-build-dir symlinks if one of the namespaces is the default
+    # note that we already sanity checked previous state above
+    if nsinfo['id'] == 0:
+        # changing *to* default namespace
+        # add oldbuild symlinks
+        oldbuild = koji.pathinfo.oldbuild(binfo)
+        newbuild = koji.pathinfo.newbuild(binfo)
+        relpath = koji.util.relpath(newbuild, os.path.dirname(oldbuild))
+        koji.ensuredir(os.path.dirname(oldbuild))
+        os.symlink(relpath, oldbuild)
+        if binfo['volume_id'] != 0:
+            base_binfo = get_base_binfo(binfo)
+            oldbasebuild = koji.pathinfo.oldbuild(base_binfo)
+            relpath = koji.util.relpath(newbuild, os.path.dirname(oldbasebuild))
+            koji.ensuredir(os.path.dirname(oldbasebuild))
+            os.symlink(relpath, oldbasebuild)
+    elif old_binfo['namespace_id'] == 0:
+        # changing *from* default namespace
+        # remove oldbuild symlinks
+        oldbuild = koji.pathinfo.oldbuild(binfo)
+        if os.path.islink(oldbuild):
+            os.unlink(oldbuild)
+        if binfo['volume_id'] != 0:
+            base_binfo = get_base_binfo(binfo)
+            oldbasebuild = koji.pathinfo.oldbuild(base_binfo)
+            if os.path.islink(oldbasebuild):
+                os.unlink(oldbasebuild)
+
+    koji.plugin.run_callbacks('postBuildStateChange', attribute='namespace_id',
+                old=old_binfo['namespace_id'], new=nsinfo['id'], info=binfo)
+
+
+def check_build_dirs(binfo, fix=False):
+    """Check that a build's directories are arranged correctly
+
+    If fix is set to true, fix problems (if possible)
+    """
+    if binfo['namespace_id'] == 0:
+        # default namespace, build may still be in old location
+        # also, we maintain a symlink
+        oldbuild = koji.pathinfo.oldbuild(binfo)
+        newbuild = koji.pathinfo.newbuild(binfo)
+        if os.path.islink(oldbuild):
+            # old dir should be a link to new one
+            if os.path.islink(newbuild):
+                raise koji.GenericError, "Build directory is a symlink: %s" % newbuild
+            if not os.path.exists(newbuild):
+                raise koji.GenericError, "Build directory does not exist: %s" % newbuild
+            # TODO add more checks
+            # TODO volume symlinks for this case
+        elif not os.path.exists(oldbuild):
+            if not os.path.exists(newbuild):
+                raise koji.GenericError, "Build directory is missing: %s" % newbuild
+            if os.path.islink(newbuild):
+                raise koji.GenericError, "Build directory is symlink: %s" % newbuild
+            if not fix:
+                raise koji.GenericError, "Old build symlink is missing: %s" % oldbuild
+            #otherwise we can fix the link
+            relpath = koji.util.relpath(newbuild, os.path.dirname(oldbuild))
+            koji.ensuredir(os.path.dirname(oldbuild))
+            os.symlink(relpath, oldbuild)
+        else:
+            # build not migrated to to new layout yet
+            if not fix:
+                raise koji.GenericError, "Old build directory not migrated yet: %s" % oldbuild
+            if os.path.islink(newbuild) or os.path.exists(newbuild):
+                raise koji.GenericError, "Unable to migrate build dir. Path already exists: %s" \
+                            % newbuild
+            if binfo['volume_id'] != 0:
+                # check the volume symlinks
+                base_binfo = get_base_binfo(binfo)
+                oldbasebuild = koji.pathinfo.oldbuild(base_binfo)
+                newbasebuild = koji.pathinfo.newbuild(base_binfo)
+                if not os.path.islink(oldbasebuild) and os.path.exists(oldbasebuild):
+                    raise koji.GenericError, \
+                        "Unable to migrate build dir. Volume layout corrupted. Not a symlink: %s" \
+                            % oldbasebuild
+                if os.path.islink(newbasebuild) or os.path.exists(newbasebuild):
+                    raise koji.GenericError, \
+                        "Unable to migrate build dir. Path already exists: %s" \
+                                % newbasebuild
+            # migrate
+            relpath = koji.util.relpath(newbuild, os.path.dirname(oldbuild))
+            koji.ensuredir(os.path.dirname(newbuild))
+            os.rename(oldbuild, newbuild)
+            os.symlink(relpath, oldbuild)
+            if binfo['volume_id'] != 0:
+                #deal with volume symlinks
+                for basedir in oldbasebuild, newbasebuild:
+                    if os.path.islink(basedir):
+                        os.unlink(basedir)
+                    relpath = koji.util.relpath(newbuild, os.path.dirname(basedir))
+                    os.symlink(relpath, basedir)
+    else:
+        # non-default namespace case
+        # oldbuild is irrelevant (and may well belong link to a different build)
+        newbuild = koji.pathinfo.newbuild(binfo)
+        if os.path.islink(newbuild):
+            raise koji.GenericError, "Build directory is a symlink: %s" % newbuild
+        if not os.path.exists(newbuild):
+            raise koji.GenericError, "Build directory does not exist: %s" % newbuild
+        if binfo['volume_id'] != 0:
+            # check the volume symlinks
+            base_binfo = get_base_binfo(binfo)
+            newbasebuild = koji.pathinfo.newbuild(base_binfo)
+            if not os.path.islink(newbasebuild):
+                if os.path.exists(newbasebuild):
+                    raise koji.GenericError, "Unexpected cross-volume content: %s" \
+                                % newbasebuild
+                if not fix:
+                    raise koji.GenericError, "Volume symlink missing: %s" \
+                                % newbasebuild
+                # otherwise fix the link
+                relpath = koji.util.relpath(newbuild, os.path.dirname(newbasebuild))
+                os.symlink(relpath, newbasebuild)
 
 
 def new_build(data):
@@ -4782,6 +5086,7 @@ def new_build(data):
     data.setdefault('owner', context.session.user_id)
     data.setdefault('task_id', None)
     data.setdefault('volume_id', 0)
+    data.setdefault('namespace_id', 0)
 
     #check for existing build
     old_binfo = get_build(data)
@@ -4794,7 +5099,8 @@ def new_build(data):
 
     #insert the new data
     insert_data = dslice(data, ['pkg_id', 'version', 'release', 'epoch', 'state', 'volume_id',
-                         'task_id', 'owner', 'start_time', 'completion_time', 'source', 'extra'])
+                         'namespace_id', 'task_id', 'owner', 'start_time', 'completion_time',
+                         'source', 'extra'])
     data['id'] = insert_data['id'] = _singleValue("SELECT nextval('build_id_seq')")
     insert = InsertProcessor('build', data=insert_data)
     insert.execute()
@@ -4864,6 +5170,46 @@ def recycle_build(old, data):
         shutil.rmtree(builddir)
     koji.plugin.run_callbacks('postBuildStateChange', attribute='state',
                 old=old['state'], new=data['state'], info=data)
+
+
+# XXX unused?
+def check_existing_build(data):
+    #check for existing build
+    if data['namespace_id'] is None:
+        # null namespace allows arbitrary overlap
+        return None
+    clauses=['pkg_id=%(pkg_id)i', 'version=%(version)s', 'release=%(release)s',
+                'namespace_id=%(namespace_id)i']
+    query = QueryProcessor(tables=['build'], columns=['id', 'state', 'task_id'],
+                           clauses=clauses, values=data, rowlock=True,
+                           opts={'asList': True})
+    row = query.executeOne()
+    if not row:
+        return None
+    build_id, state, task_id = row
+    data['id'] = build_id
+    koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=state, new=data['state'], info=data)
+    st_desc = koji.BUILD_STATES[state]
+    if st_desc == 'BUILDING':
+        # check to see if this is the controlling task
+        if data['state'] == state and data.get('task_id','') == task_id:
+            #the controlling task must have restarted (and called initBuild again)
+            return build_id
+        raise koji.GenericError, "Build already in progress (task %d)" % task_id
+        # TODO? - reclaim 'stale' builds (state=BUILDING and task_id inactive)
+    if st_desc in ('FAILED','CANCELED'):
+        #should be ok to replace
+        update = UpdateProcessor('build', clauses=['id=%(id)s'], values=data)
+        update.set(**dslice(data, ['state', 'task_id', 'owner', 'start_time', 'completion_time', 'epoch']))
+        update.rawset(create_event='get_event()')
+        update.execute()
+        builddir = koji.pathinfo.build(data)
+        if os.path.exists(builddir):
+            shutil.rmtree(builddir)
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=state, new=data['state'], info=data)
+        return build_id
+    raise koji.GenericError, "Build already exists (id=%d, state=%s): %r" \
+        % (build_id, st_desc, data)
 
 
 def check_noarch_rpms(basepath, rpms):
@@ -4971,7 +5317,7 @@ def import_build(srpm, rpms, brmap=None, task_id=None, build_id=None, logs=None)
     return binfo
 
 
-def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
+def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None, namespace=0):
     """Import a single rpm into the database
 
     Designed to be called from import_build.
@@ -4985,6 +5331,10 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
                     'sourcepackage', 'arch', 'buildtime', 'sourcerpm'])
     if rpminfo['sourcepackage'] == 1:
         rpminfo['arch'] = "src"
+
+    nsinfo = lookup_namespace(namespace, strict=True)
+    rpminfo['namespace_id'] = nsinfo['id']
+    rpminfo['namespace'] = nsinfo['name']
 
     #sanity check basename
     basename = os.path.basename(fn)
@@ -5003,10 +5353,10 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
                 buildinfo = get_build(build_id, strict=True)
         else:
             #figure it out from sourcerpm string
-            buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
+            bspec = koji.parse_NVRA(rpminfo['sourcerpm'])
+            bspec['namespace_id'] = nsinfo['id']
+            buildinfo = get_build(bspec)
             if buildinfo is None:
-                #XXX - handle case where package is not a source rpm
-                #      and we still need to create a new build
                 raise koji.GenericError('No matching build')
             state = koji.BUILD_STATES[buildinfo['state']]
             if state in ('FAILED', 'CANCELED', 'DELETED'):
@@ -5049,6 +5399,7 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
     data = rpminfo.copy()
     del data['sourcepackage']
     del data['sourcerpm']
+    del data['namespace']
     insert = InsertProcessor('rpminfo', data=data)
     insert.execute()
 
@@ -6948,7 +7299,7 @@ def delete_build(build, strict=True, min_ref_age=604800):
     Returns True if successful, False otherwise
     """
     context.session.assertPerm('admin')
-    binfo = get_build(build, strict=True)
+    binfo = _get_build(build, strict=True, lock=True)
     refs = build_references(binfo['id'], limit=10)
     if refs['tags']:
         if strict:
@@ -7036,10 +7387,11 @@ def reset_build(build):
     """
     # Only an admin may do this
     context.session.assertPerm('admin')
-    binfo = get_build(build)
-    if not binfo:
-        #nothing to do
+    try:
+        binfo = _get_build(build, strict=True, lock=True)
+    except koji.GenericError:
         return
+        #XXX - this is here for compatibility, but we probably should error here
     koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=koji.BUILD_STATES['CANCELED'], info=binfo)
     q = """SELECT id FROM rpminfo WHERE build_id=%(id)i"""
     ids = _fetchMulti(q, binfo)
@@ -7113,7 +7465,7 @@ def cancel_build(build_id, cancel_task=True):
     """
     st_canceled = koji.BUILD_STATES['CANCELED']
     st_building = koji.BUILD_STATES['BUILDING']
-    build = get_build(build_id, strict=True)
+    build = _get_build(build_id, strict=True, lock=True)
     if build['state'] != st_building:
         return False
     koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build['state'], new=st_canceled, info=build)
@@ -7985,6 +8337,24 @@ class CGMatchAllTest(koji.policy.BaseSimpleTest):
                 return False
         # else
         return True
+
+
+class NamespaceTest(koji.policy.MatchTest):
+    """Checks build namespace against glob patterns"""
+    name = 'namespace'
+    field = '_namespace'
+    def run(self, data):
+        #we need to find the namespace from the base data
+        info = None
+        if 'namespace' in data:
+            info = lookup_namespace(data['namespace'], strict=False)
+        elif 'build' in data:
+            build = get_build(data['build'])
+            info = {'id': build['namespace_id'], 'name': build['namespace']}
+        if not info:
+            return False
+        data[self.field] = info['name']
+        return super(NamespaceTest, self).run(data)
 
 
 class TagTest(koji.policy.MatchTest):
@@ -9012,10 +9382,18 @@ class RootExports(object):
     def getVolume(self, volume, strict=False):
         return lookup_name('volume', volume, strict=strict)
 
-    def createEmptyBuild(self, name, version, release, epoch, owner=None):
+    addNamespace = staticmethod(add_namespace)
+    removeNamespace = staticmethod(remove_namespace)
+    listNamespaces = staticmethod(list_namespaces)
+    changeBuildNamespace = staticmethod(change_build_namespace)
+    def getNamespace(self, namespace, strict=False):
+        return lookup_namespace(namespace, strict=strict)
+
+    def createEmptyBuild(self, name, version, release, epoch, owner=None, namespace=0):
         context.session.assertPerm('admin')
+        nsinfo = lookup_namespace(namespace, strict=True)
         data = {'name' : name, 'version' : version, 'release' : release,
-                'epoch' : epoch}
+                'epoch' : epoch, 'namespace_id' : nsinfo['id']}
         if owner is not None:
             data['owner'] = owner
         return new_build(data)
@@ -9031,7 +9409,7 @@ class RootExports(object):
             raise koji.GenericError("Maven support not enabled")
         build = get_build(build_info)
         if not build:
-            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch')))
+            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch', 'namespace_id')))
             build = get_build(build_id, strict=True)
         new_maven_build(build, maven_info)
 
@@ -9046,7 +9424,7 @@ class RootExports(object):
             raise koji.GenericError("Windows support not enabled")
         build = get_build(build_info)
         if not build:
-            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch')))
+            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch', 'namespace_id')))
             build = get_build(build_id, strict=True)
         new_win_build(build, win_info)
 
@@ -9058,11 +9436,11 @@ class RootExports(object):
         context.session.assertPerm('image-import')
         build = get_build(build_info)
         if not build:
-            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch')))
+            build_id = new_build(dslice(build_info, ('name', 'version', 'release', 'epoch', 'namespace_id')))
             build = get_build(build_id, strict=True)
         new_image_build(build)
 
-    def importRPM(self, path, basename):
+    def importRPM(self, path, basename, namespace=0):
         """Import an RPM into the database.
 
         The file must be uploaded first.
@@ -9072,7 +9450,7 @@ class RootExports(object):
         fn = "%s/%s/%s" %(uploadpath, path, basename)
         if not os.path.exists(fn):
             raise koji.GenericError("No such file: %s" % fn)
-        rpminfo = import_rpm(fn)
+        rpminfo = import_rpm(fn, namespace=namespace)
         import_rpm_file(fn, rpminfo['build'], rpminfo)
         add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
         for tag in list_tags(build=rpminfo['build_id']):
@@ -9475,7 +9853,7 @@ class RootExports(object):
         return readTaggedArchives(tag, event=event, inherit=inherit, latest=latest, package=package, type=type)
 
     def listBuilds(self, packageID=None, userID=None, taskID=None, prefix=None, state=None,
-                   volumeID=None,
+                   volumeID=None, namespaceID=None,
                    createdBefore=None, createdAfter=None,
                    completeBefore=None, completeAfter=None, type=None, typeInfo=None, queryOpts=None):
         """List package builds.
@@ -9484,6 +9862,7 @@ class RootExports(object):
         If taskID is specfied, restrict the results to builds with the given task ID.  If taskID is -1,
            restrict the results to builds with a non-null taskID.
         If volumeID is specified, restrict the results to builds stored on that volume
+        If namespaceID is specified, restrict the results to builds in that namespace
         One or more of packageID, userID, volumeID, and taskID may be specified.
         If prefix is specified, restrict the results to builds whose package name starts with that
         prefix.
@@ -9515,6 +9894,8 @@ class RootExports(object):
           - owner_name
           - volume_id
           - volume_name
+          - namespace_id
+          - namespace
           - creation_event_id
           - creation_time
           - creation_ts
@@ -9543,6 +9924,7 @@ class RootExports(object):
                   ('EXTRACT(EPOCH FROM build.completion_time)', 'completion_ts'),
                   ('package.id', 'package_id'), ('package.name', 'package_name'), ('package.name', 'name'),
                   ('volume.id', 'volume_id'), ('volume.name', 'volume_name'),
+                  ('namespace.id', 'namespace_id'), ('namespace.name', 'namespace'),
                   ("package.name || '-' || build.version || '-' || build.release", 'nvr'),
                   ('users.id', 'owner_id'), ('users.name', 'owner_name')]
 
@@ -9550,6 +9932,7 @@ class RootExports(object):
         joins = ['LEFT JOIN events ON build.create_event = events.id',
                  'LEFT JOIN package ON build.pkg_id = package.id',
                  'LEFT JOIN volume ON build.volume_id = volume.id',
+                 'LEFT OUTER JOIN namespace ON build.namespace_id = namespace.id',
                  'LEFT JOIN users ON build.owner = users.id']
         clauses = []
         if packageID != None:
@@ -9558,6 +9941,8 @@ class RootExports(object):
             clauses.append('users.id = %(userID)i')
         if volumeID != None:
             clauses.append('volume.id = %(volumeID)i')
+        if namespaceID != None:
+            clauses.append('namespace.id = %(namespaceID)i')
         if taskID != None:
             if taskID == -1:
                 clauses.append('build.task_id IS NOT NULL')
@@ -10608,18 +10993,15 @@ class RootExports(object):
 
     def setBuildOwner(self, build, user):
         context.session.assertPerm('admin')
-        buildinfo = get_build(build)
-        if not buildinfo:
-            raise koji.GenericError('build does not exist: %s' % build)
+        buildinfo = get_build(build, strict=True)
         userinfo = get_user(user)
         if not userinfo:
             raise koji.GenericError('user does not exist: %s' % user)
-        userid = userinfo['id']
-        buildid = buildinfo['id']
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userid, info=buildinfo)
-        q = """UPDATE build SET owner=%(userid)i WHERE id=%(buildid)i"""
-        _dml(q, locals())
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userid, info=buildinfo)
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userinfo['id'], info=buildinfo)
+        update = UpdateProcessor('build', clauses=['id=%(id)i'], values=buildinfo)
+        update.set(owner=userinfo['id'])
+        update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='owner_id', old=buildinfo['owner_id'], new=userinfo['id'], info=buildinfo)
 
     def setBuildTimestamp(self, build, ts):
         """Set the completion time for a build
@@ -10628,25 +11010,23 @@ class RootExports(object):
         ts should be # of seconds since epoch or optionally an
             xmlrpc DateTime value"""
         context.session.assertPerm('admin')
-        buildinfo = get_build(build)
-        if not buildinfo:
-            raise koji.GenericError('build does not exist: %s' % build)
-        elif isinstance(ts, xmlrpclib.DateTime):
+        buildinfo = get_build(build, strict=True)
+        if isinstance(ts, xmlrpclib.DateTime):
             #not recommended
             #the xmlrpclib.DateTime class is almost useless
             try:
-                ts = time.mktime(time.strptime(str(ts), '%Y%m%dT%H:%M:%S'))
+                new_ts = time.mktime(time.strptime(str(ts),'%Y%m%dT%H:%M:%S'))
             except ValueError:
                 raise koji.GenericError("Invalid time: %s" % ts)
-        elif not isinstance(ts, (int, long, float)):
+        elif isinstance(ts, (int, long, float)):
+            new_ts = ts
+        else:
             raise koji.GenericError("Invalid type for timestamp")
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=ts, info=buildinfo)
-        buildid = buildinfo['id']
-        q = """UPDATE build
-        SET completion_time=TIMESTAMP 'epoch' AT TIME ZONE 'utc' + '%(ts)f seconds'::interval
-        WHERE id=%%(buildid)i""" % locals()
-        _dml(q, locals())
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=ts, info=buildinfo)
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=new_ts, info=buildinfo)
+        update = UpdateProcessor('build', clauses=['id=%(id)i'], values=buildinfo)
+        update.rawset(completion_time="TIMESTAMP 'epoch' AT TIME ZONE 'utc' + '%f seconds'::interval" % new_ts)
+        update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='completion_ts', old=buildinfo['completion_ts'], new=new_ts, info=buildinfo)
 
     def count(self, methodName, *args, **kw):
         """Execute the XML-RPC method with the given name and count the results.

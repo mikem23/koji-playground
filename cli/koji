@@ -1601,6 +1601,7 @@ def handle_import(options, session, args):
     parser.add_option("--test", action="store_true", help=_("Don't actually import"))
     parser.add_option("--create-build", action="store_true", help=_("Auto-create builds as needed"))
     parser.add_option("--src-epoch", help=_("When auto-creating builds, use this epoch"))
+    parser.add_option("--namespace", help=_("Import into this namespace"))
     (options, args) = parser.parse_args(args)
     if len(args) < 1:
         parser.error(_("At least one package must be specified"))
@@ -1613,6 +1614,14 @@ def handle_import(options, session, args):
         except (ValueError, TypeError):
             parser.error(_("Invalid value for epoch: %s") % options.src_epoch)
             assert False  # pragma: no cover
+    if options.namespace:
+        if options.namespace == 'NULL':
+            nsinfo = {'id': None, 'name': None}
+        else:
+            nsinfo = session.getNamespace(options.namespace, strict=True)
+    else:
+        #use default namespace
+        nsinfo = session.getNamespace(0, strict=True)
     activate_session(session)
     to_import = {}
     for path in args:
@@ -1634,7 +1643,9 @@ def handle_import(options, session, args):
                 break
         else:
             #no srpm included, check for build
-            binfo = session.getBuild(nvr)
+            bspec = koji.parse_NVR(nvr)
+            bspec['namespace_id'] = nsinfo['id']
+            binfo = session.getBuild(bspec)
             if not binfo:
                 print(_("Missing build or srpm: %s") % nvr)
                 builds_missing = True
@@ -1645,6 +1656,8 @@ def handle_import(options, session, args):
     #local function to help us out below
     def do_import(path, data):
         rinfo = dict([(k,data[k]) for k in ('name','version','release','arch')])
+        rinfo['namespace_id'] = nsinfo['id']
+        rinfo['location'] = 0
         prev = session.getRPM(rinfo)
         if prev and not prev.get('external_repo_id', 0):
             if prev['payloadhash'] == koji.hex_string(data['sigmd5']):
@@ -1671,7 +1684,7 @@ def handle_import(options, session, args):
         sys.stdout.write(_("importing %s... ") % path)
         sys.stdout.flush()
         try:
-            session.importRPM(serverdir, os.path.basename(path))
+            session.importRPM(serverdir, os.path.basename(path), namespace=nsinfo['id'])
         except koji.GenericError, e:
             print(_("\nError importing: %s" % str(e).splitlines()[-1]))
             sys.stdout.flush()

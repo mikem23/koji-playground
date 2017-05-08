@@ -2,6 +2,7 @@
 -- vim:et:sw=8
 
 -- drop statements for old data have moved to schema-clear.sql
+-- though it is probably easier to just drop the db and recreate it
 
 BEGIN WORK;
 
@@ -223,6 +224,15 @@ CREATE TABLE volume (
 
 INSERT INTO volume (id, name) VALUES (0, 'DEFAULT');
 
+
+CREATE TABLE namespace (
+        id SERIAL NOT NULL PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL
+) WITHOUT OIDS;
+
+INSERT INTO namespace (id, name) VALUES (0, 'DEFAULT');
+
+
 -- here we track the built packages
 -- this is at the srpm level, since builds are by srpm
 -- see rpminfo for isolated packages
@@ -232,6 +242,7 @@ INSERT INTO volume (id, name) VALUES (0, 'DEFAULT');
 CREATE TABLE build (
 	id SERIAL NOT NULL PRIMARY KEY,
         volume_id INTEGER NOT NULL REFERENCES volume (id),
+        namespace_id INTEGER REFERENCES namespace (id),
 	pkg_id INTEGER NOT NULL REFERENCES package (id) DEFERRABLE,
 	version TEXT NOT NULL,
 	release TEXT NOT NULL,
@@ -244,7 +255,8 @@ CREATE TABLE build (
 	task_id INTEGER REFERENCES task (id),
 	owner INTEGER NOT NULL REFERENCES users (id),
 	extra TEXT,
-	CONSTRAINT build_pkg_ver_rel UNIQUE (pkg_id, version, release),
+	CONSTRAINT build_pkg_ver_rel UNIQUE (namespace_id, pkg_id, version, release),
+--      note that namespace can be null, which allows arbitrary nvr overlap
 	CONSTRAINT completion_sane CHECK ((state = 0 AND completion_time IS NULL) OR
                                           (state != 0 AND completion_time IS NOT NULL))
 ) WITHOUT OIDS;
@@ -335,6 +347,7 @@ CREATE TABLE tag_config (
 	locked BOOLEAN NOT NULL DEFAULT 'false',
 	maven_support BOOLEAN NOT NULL DEFAULT FALSE,
 	maven_include_all BOOLEAN NOT NULL DEFAULT FALSE,
+        namespace_id INTEGER REFERENCES namespace(id) DEFAULT 0,
 -- versioned - see desc above
 	create_event INTEGER NOT NULL REFERENCES events(id) DEFAULT get_event(),
 	revoke_event INTEGER REFERENCES events(id),
@@ -653,6 +666,7 @@ CREATE TABLE rpminfo (
 	id SERIAL NOT NULL PRIMARY KEY,
 	build_id INTEGER REFERENCES build (id),
 	buildroot_id INTEGER REFERENCES buildroot (id),
+        namespace_id INTEGER REFERENCES namespace (id),
 	name TEXT NOT NULL,
 	version TEXT NOT NULL,
 	release TEXT NOT NULL,
@@ -664,7 +678,10 @@ CREATE TABLE rpminfo (
 	buildtime BIGINT NOT NULL,
 	metadata_only BOOLEAN NOT NULL DEFAULT FALSE,
 	extra TEXT,
-	CONSTRAINT rpminfo_unique_nvra UNIQUE (name,version,release,arch,external_repo_id)
+        CONSTRAINT external_no_namespace CHECK (external_repo_id = 0 OR namespace_id=0),
+        CONSTRAINT external_no_build CHECK (external_repo_id = 0 OR build_id IS NULL),
+	CONSTRAINT rpminfo_unique_nvra UNIQUE (namespace_id,name,version,release,arch,external_repo_id)
+--      note that namespace can be null, which allows arbitrary nvra overlap
 ) WITHOUT OIDS;
 CREATE INDEX rpminfo_build ON rpminfo(build_id);
 
