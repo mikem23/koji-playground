@@ -366,6 +366,15 @@ class LiveMediaError(GenericError):
     """Raised when LiveMedia Image creation fails"""
     faultCode = 1022
 
+class NoMatchError(GenericError):
+    """Raised when a given value does not match known data, but should"""
+    faultCode = 1023
+
+class MultipleValueError(GenericError):
+    """Raised when a query expects a single value and gets more than one"""
+    faultCode = 1024
+
+
 class MultiCallInProgress(object):
     """
     Placeholder class to be returned by method calls when in the process of

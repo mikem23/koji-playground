@@ -109,7 +109,7 @@ class Task(object):
         q = """SELECT state,host_id FROM task WHERE id=%(task_id)s FOR UPDATE"""
         r = _fetchSingle(q, locals())
         if not r:
-            raise koji.GenericError("No such task: %i" % task_id)
+            raise koji.NoMatchError("No such task: %i" % task_id)
         state, otherhost = r
         return (state == koji.TASK_STATES['OPEN'] and otherhost == host_id)
 
@@ -133,7 +133,7 @@ class Task(object):
         q = """SELECT owner FROM task WHERE id=%(task_id)s FOR UPDATE"""
         r = _fetchSingle(q, locals())
         if not r:
-            raise koji.GenericError("No such task: %i" % task_id)
+            raise koji.NoMatchError("No such task: %i" % task_id)
         (owner,) = r
         return (owner == user_id)
 
@@ -155,7 +155,7 @@ class Task(object):
             q = """SELECT state,host_id FROM task WHERE id=%(task_id)i FOR UPDATE"""
             r = _fetchSingle(q, locals())
             if not r:
-                raise koji.GenericError("No such task: %i" % task_id)
+                raise koji.NoMatchError("No such task: %i" % task_id)
             state, otherhost = r
             if state == koji.TASK_STATES['FREE']:
                 if otherhost is not None:
@@ -223,7 +223,7 @@ class Task(object):
         query = """SELECT state FROM task WHERE id = %(id)i FOR UPDATE"""
         row = _fetchSingle(query, vars(self))
         if not row:
-            raise koji.GenericError("No such task: %i" % self.id)
+            raise koji.NoMatchError("No such task: %i" % self.id)
         oldstate = row[0]
         if koji.TASK_STATES[oldstate] in ['CLOSED', 'CANCELED', 'FAILED']:
             raise koji.GenericError("Cannot free task %i, state is %s" % \
@@ -404,7 +404,7 @@ class Task(object):
         query = """SELECT state,result FROM task WHERE id = %(id)i"""
         r = _fetchSingle(query, vars(self))
         if not r:
-            raise koji.GenericError("No such task")
+            raise koji.NoMatchError("No such task")
         state, xml_result = r
         if koji.TASK_STATES[state] == 'CANCELED':
             raise koji.GenericError("Task %i is canceled" % self.id)
@@ -2781,7 +2781,7 @@ def get_build_target(info, event=None, strict=False):
     if len(targets) == 1:
         return targets[0]
     elif strict:
-        raise koji.GenericError('No matching build target found: %s' % info)
+        raise koji.NoMatchError('No matching build target found: %s' % info)
     else:
         return None
 
@@ -2815,7 +2815,7 @@ def lookup_name(table, info, strict=False, create=False):
     ret = _singleRow(q, locals(), fields, strict=False)
     if ret is None:
         if strict:
-            raise koji.GenericError('No such entry in table %s: %s' % (table, info))
+            raise koji.NoMatchError('No such entry in table %s: %s' % (table, info))
         elif create:
             if not isinstance(info, str):
                 raise koji.GenericError('Name must be a string')
@@ -3525,13 +3525,13 @@ def find_build_id(X, strict=False):
 
     if not builds:
         if strict:
-            raise koji.GenericError, "No matching build found: %s" % X
+            raise koji.NoMatchError, "No matching build found: %s" % X
         return None
     if len(builds) == 1:
         return builds[0][0]
     # multiple builds, choose default namespace first
     if strict:
-        raise koji.GenericError, "Multiple matching builds for: %r" % X
+        raise koji.MultipleValueError, "Multiple matching builds for: %r" % X
     for row in builds:
         if row[1] == 0:
             return row[0]
@@ -3619,7 +3619,7 @@ def _get_build(buildInfo, strict=False, lock=False):
 
     if not result:
         if strict:
-            raise koji.GenericError('No matching build found: %s' % buildInfo)
+            raise koji.NoMatchError('No matching build found: %s' % buildInfo)
         else:
             return None
     else:
@@ -3776,7 +3776,7 @@ def get_rpm(rpminfo, strict=False, multi=False):
         ret = query.executeOne()
     if not ret:
         if strict:
-            raise koji.GenericError("No such rpm: %r" % data)
+            raise koji.NoMatchError("No such rpm: %r" % data)
         return None
     return ret
 
@@ -3904,7 +3904,7 @@ def get_win_build(buildInfo, strict=False):
                            values={'build_id': build_id})
     result = query.executeOne()
     if strict and not result:
-        raise koji.GenericError('no such Windows build: %s' % buildInfo)
+        raise koji.NoMatchError('no such Windows build: %s' % buildInfo)
     return result
 
 def get_image_build(buildInfo, strict=False):
@@ -3925,7 +3925,7 @@ def get_image_build(buildInfo, strict=False):
                            values={'build_id': build_id})
     result = query.executeOne()
     if strict and not result:
-        raise koji.GenericError('no such image build: %s' % buildInfo)
+        raise koji.NoMatchError('no such image build: %s' % buildInfo)
     return result
 
 
@@ -4488,7 +4488,7 @@ def _fetchSingle(query, values, strict=False):
         else:
             return None
     elif strict and numRows > 1:
-        raise koji.GenericError('multiple rows returned for a single row query')
+        raise koji.MultipleValueError('multiple rows returned for a single row query')
     else:
         return results[0]
 
@@ -4525,7 +4525,7 @@ def _singleValue(query, values=None, strict=True):
     row = _fetchSingle(query, values, strict)
     if row:
         if strict and len(row) > 1:
-            raise koji.GenericError('multiple fields returned for a single value query')
+            raise koji.MultipleValueError('multiple fields returned for a single value query')
         return row[0]
     else:
         # don't need to check strict here, since that was already handled by _singleRow()
@@ -4702,7 +4702,7 @@ def get_buildroot(buildrootID, strict=False):
     result = query_buildroots(buildrootID=buildrootID)
     if len(result) == 0:
         if strict:
-            raise koji.GenericError("No such buildroot: %r" % buildrootID)
+            raise koji.NoMatchError("No such buildroot: %r" % buildrootID)
         else:
             return None
     if len(result) > 1:
@@ -5357,7 +5357,7 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None, n
             bspec['namespace_id'] = nsinfo['id']
             buildinfo = get_build(bspec)
             if buildinfo is None:
-                raise koji.GenericError('No matching build')
+                raise koji.NoMatchError('No matching build')
             state = koji.BUILD_STATES[buildinfo['state']]
             if state in ('FAILED', 'CANCELED', 'DELETED'):
                 nvr = "%(name)s-%(version)s-%(release)s" % buildinfo
@@ -6193,7 +6193,7 @@ def get_archive_type(filename=None, type_name=None, type_id=None, strict=False):
             return results[0]
         elif len(results) > 1:
             # this should never happen, and is a misconfiguration in the database
-            raise koji.GenericError('multiple matches for file extension: %s' % ext)
+            raise koji.MultipleValueError('multiple matches for file extension: %s' % ext)
     #otherwise
     if strict:
         raise koji.GenericError('unsupported file extension: %s' % ext)
@@ -7389,7 +7389,7 @@ def reset_build(build):
     context.session.assertPerm('admin')
     try:
         binfo = _get_build(build, strict=True, lock=True)
-    except koji.GenericError:
+    except koji.NoMatchError:
         return
         #XXX - this is here for compatibility, but we probably should error here
     koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=koji.BUILD_STATES['CANCELED'], info=binfo)
@@ -7644,7 +7644,7 @@ def drop_group_member(group, user):
     user = get_user(user, strict=True)
     ginfo = get_user(group)
     if not ginfo or ginfo['usertype'] != koji.USERTYPES['GROUP']:
-        raise koji.GenericError("No such group: %s" % group)
+        raise koji.NoMatchError("No such group: %s" % group)
     data = {'user_id' : user['id'], 'group_id' : ginfo['id']}
     clauses = ["user_id = %(user_id)i", "group_id = %(group_id)i"]
     update = UpdateProcessor('user_groups', values=data, clauses=clauses)
