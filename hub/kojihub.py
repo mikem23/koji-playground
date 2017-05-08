@@ -1507,7 +1507,7 @@ def _direct_tag_build(tag, build, user, force=False):
     clauses = ('tag_id=%(tag_id)i', 'build_id=%(build_id)i')
     query = QueryProcessor(columns=['build_id'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     #note: tag_listing is unique on (build_id, tag_id, active)
     if query.executeOne():
         #already tagged
@@ -1675,7 +1675,7 @@ def _grplist_unblock(taginfo, grpinfo):
     clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s')
     query = QueryProcessor(columns=['blocked'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     blocked = query.singleValue(strict=False)
     if not blocked:
         raise koji.GenericError("group %s is NOT blocked in tag %s" % (group['name'], tag['name']))
@@ -1797,7 +1797,7 @@ def _grp_pkg_unblock(taginfo, grpinfo, pkg_name):
     clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s', 'package = %(pkg_name)s')
     query = QueryProcessor(columns=['blocked'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     blocked = query.singleValue(strict=False)
     if not blocked:
         raise koji.GenericError("package %s is NOT blocked in group %s, tag %s" \
@@ -1924,7 +1924,7 @@ def _grp_req_unblock(taginfo, grpinfo, reqinfo):
     clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s', 'req_id = %(req_id)s')
     query = QueryProcessor(columns=['blocked'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
+                           values=locals(), rowlock=True)
     blocked = query.singleValue(strict=False)
     if not blocked:
         raise koji.GenericError("group req %s is NOT blocked in group %s, tag %s" \
@@ -7276,7 +7276,7 @@ def add_group_member(group, user, strict=True):
     clauses = ('user_id = %(user_id)i', 'group_id = %(group_id)s')
     query = QueryProcessor(columns=['user_id'], tables=[table],
                            clauses=('active = TRUE',)+clauses,
-                           values=data, opts={'rowlock':True})
+                           values=data, rowlock=True)
     row = query.executeOne()
     if row:
         if not strict:
@@ -7577,6 +7577,10 @@ class QueryProcessor(object):
     - values: the map that will be used to replace any substitution expressions in the query
     - transform: a function that will be called on each row (not compatible with
                  countOnly or singleValue)
+    - rowlock: if True, use "FOR UPDATE" to lock the queried rows. If a list, then treated
+               as a list of tables to lock (FOR UPDATE OF ...)
+    - share: if true, then the row lock is a shared one (FOR SHARE ...)
+    - nowait: if true, then the row lock is nonblocking
     - opts: a map of query options; currently supported options are:
         countOnly: if True, return an integer indicating how many results would have been
                    returned, rather than the actual query results
@@ -7585,14 +7589,13 @@ class QueryProcessor(object):
         limit: an integer to use in the 'LIMIT' clause
         asList: if True, return results as a list of lists, where each list contains the
                 column values in query order, rather than the usual list of maps
-        rowlock: if True, use "FOR UPDATE" to lock the queried rows
     """
 
     iterchunksize = 1000
 
     def __init__(self, columns=None, aliases=None, tables=None,
                  joins=None, clauses=None, values=None, transform=None,
-                 opts=None):
+                 rowlock=None, share=None, nowait=None, opts=None):
         self.columns = columns
         self.aliases = aliases
         if columns and aliases:
@@ -7610,6 +7613,9 @@ class QueryProcessor(object):
         else:
             self.values = {}
         self.transform = transform
+        self.rowlock = rowlock
+        self.share = share
+        self.nowait = nowait
         if opts:
             self.opts = opts
         else:
@@ -7654,8 +7660,16 @@ SELECT %(col_str)s
         if self.opts.get('countOnly') and \
            (self.opts.get('offset') or self.opts.get('limit')):
             query = 'SELECT count(*)\nFROM (' + query + ') numrows'
-        if self.opts.get('rowlock'):
-            query += '\n FOR UPDATE'
+        if self.rowlock:
+            if self.share:
+                query += '\n FOR SHARE'
+            else:
+                query += '\n FOR UPDATE'
+            if not isinstance(self.rowlock, bool):
+                # treat as list of table names
+                query += ' OF ' + ', '.join(self.rowlock)
+            if self.nowait:
+                query += ' NOWAIT'
         return query
 
     def __repr__(self):
@@ -11034,7 +11048,7 @@ class BuildRoot(object):
             raise koji.GenericError("Cannot change buildroot state to INIT")
         query = QueryProcessor(columns=['state', 'retire_event'], values=self.data,
                     tables=['standard_buildroot'], clauses=['buildroot_id=%(id)s'],
-                    opts={'rowlock':True})
+                    rowlock=True)
         row = query.executeOne()
         if not row:
             raise koji.GenericError("Unable to get state for buildroot %s" % self.id)
