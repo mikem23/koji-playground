@@ -952,6 +952,9 @@ def parse_NVR(nvr):
     parts = nvr.rsplit('-', 2)
     if len(parts) != 3:
         raise GenericError("invalid format: %s" % nvr)
+    for part in parts:
+        if not part:
+            raise GenericError("invalid format: %s" % nvr)
     ret['release'] = parts[2]
     ret['version'] = parts[1]
     head = parts[0]
