@@ -12,7 +12,7 @@ INSERT INTO namespace (id, name) VALUES (0, 'DEFAULT');
 
 
 
-ALTER TABLE build ADD COLUMN namespace_id REFERENCES namespace(id) INTEGER DEFAULT 0;
+ALTER TABLE build ADD COLUMN namespace_id INTEGER REFERENCES namespace(id) DEFAULT 0;
 -- can be null
 
 
@@ -21,7 +21,7 @@ ALTER TABLE build ADD CONSTRAINT build_namespace_sanity UNIQUE (namespace_id, pk
 --      note that namespace_id can be null, which allows arbitrary nvr overlap
 
 
-ALTER TABLE rpminfo ADD COLUMN namespace_id REFERENCES namespace(id) INTEGER DEFAULT 0;
+ALTER TABLE rpminfo ADD COLUMN namespace_id INTEGER REFERENCES namespace(id) DEFAULT 0;
 -- can be null
 
 
