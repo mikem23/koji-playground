@@ -9946,8 +9946,12 @@ class RootExports(object):
             clauses.append('users.id = %(userID)i')
         if volumeID != None:
             clauses.append('volume.id = %(volumeID)i')
-        if namespaceID != None:
-            clauses.append('namespace.id = %(namespaceID)i')
+        if namespaceID is not None:
+            nsid = lookup_namespace(namespaceID, strict=True)['id']
+            if nsid is None:
+                clauses.append('build.namespace_id IS NULL')
+            else:
+                clauses.append('build.namespace_id = %(nsid)i')
         if taskID != None:
             if taskID == -1:
                 clauses.append('build.task_id IS NOT NULL')
