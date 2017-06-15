@@ -187,13 +187,14 @@ class SCM(object):
         Initialize the SCM object using the specified url.
         The expected url format is:
 
-        scheme://[user@]host/path/to/repo?path/to/module#revision_or_tag_identifier
+        scheme://[user@]host[:port]/path/to/repo?path/to/module#revision_or_tag_identifier
 
         The initialized SCM object will have the following attributes:
         - url (the unmodified url)
         - scheme
         - user (may be null)
         - host
+        - port
         - repository
         - module
         - revision
@@ -210,11 +211,19 @@ class SCM(object):
             raise koji.GenericError('Invalid SCM URL: %s' % url)
 
         self.url = url
-        scheme, user, host, path, query, fragment = self._parse_url()
+        scheme, user, netloc, path, query, fragment = self._parse_url()
 
         self.scheme = scheme
         self.user = user
-        self.host = host
+        host_parts = netloc.split(':')
+        if len(host_parts) == 1:
+            self.host = host_parts[0]
+            self.port = None
+        elif len(host_parts) == 2:
+            self.host = host_parts[0]
+            self.port = host_parts[1]
+        else:
+            raise koji.GenericError('Invalid SCM URL: %s' % url)
         self.repository = path
         self.module = query
         self.revision = fragment
@@ -280,6 +289,13 @@ class SCM(object):
         # return parsed values
         return (scheme, user, netloc, path, query, fragment)
 
+    def _host_with_port(self):
+        # helper for hostname with port
+        if self.port:
+            return '%s:%s' (self.host, self.port)
+        else:
+            return self.host
+
     def assert_allowed(self, allowed):
         """
         Check this scm against allowed list and apply options
@@ -287,13 +303,13 @@ class SCM(object):
         allowed is a space-separated list of entries in one of the following
         forms:
 
-            host:repository[:use_common[:source_cmd]]
-            !host:repository
+            host[:port]:repository[:use_common[:source_cmd]]
+            !host[:port]:repository
 
         Incorrectly-formatted entries will be skipped with a warning.
 
-        The first form allows a host:repository pattern and optionally sets a
-        few options for it.
+        The first form allows a host[:port]:repository pattern and optionally
+        sets a few options for it.
 
         The second form explicitly blocks a host:repository pattern
 
@@ -315,36 +331,59 @@ class SCM(object):
         instead of spaces (e.g. "make,sources").
         """
         is_allowed = False
+        use_common_options = ('no', 'off', 'false', '0', 'yes', 'on', 'true', '1')
         for allowed_scm in allowed.split():
+            use_common = 'true'
+            port = None
+            source_cmd = None
             scm_tuple = allowed_scm.split(':')
-            if len(scm_tuple) < 2:
+            if len(scm_tuple) == 2:
+                host_pat, repo_pat = scm_tuple
+            elif len(scm_tuple) == 3:
+                if scm_tuple[2].lower() in use_common_options:
+                    host_pat, repo_pat, use_common = scm_tuple
+                else:
+                    host_pat, port, repo_pat = scm_tuple
+            elif len(scm_tuple) == 4:
+                if scm_tuple[3].lower() in use_common_options:
+                    host_pat, port, repo_pat, use_common = scm_tuple
+                else:
+                    host_pat, repo_pat, use_common, source_cmd = scm_tuple
+            elif len(scm_tuple) == 5:
+                host_pat, port, repo_pat, use_common, source_cmd = scm_tuple
+            else:
                 self.logger.warn('Ignoring incorrectly formatted SCM host:repository: %s' % allowed_scm)
                 continue
-            host_pat = scm_tuple[0]
-            repo_pat = scm_tuple[1]
+
+            if port is not None:
+                try:
+                    self.port = int(port)
+                except (ValueError, TypeError):
+                    self.logger.warn('Ignoring incorrectly formatted SCM host:repository: %s' % allowed_scm)
+                    continue
+
             invert = False
             if host_pat.startswith('!'):
                 invert = True
                 host_pat = host_pat[1:]
-            if fnmatch(self.host, host_pat) and fnmatch(self.repository, repo_pat):
+            if fnmatch(self.host, host_pat) and (self.port == port) and fnmatch(self.repository, repo_pat):
                 # match
                 if invert:
                     break
                 is_allowed = True
                 # check if we specify a value for use_common
-                if len(scm_tuple) >= 3:
-                    if scm_tuple[2].lower() in ('no', 'off', 'false', '0'):
-                        self.use_common = False
+                self.use_common = use_common not in ('no', 'off', 'false', '0')
                 # check if we specify a custom source_cmd
-                if len(scm_tuple) >= 4:
-                    if scm_tuple[3]:
-                        self.source_cmd = scm_tuple[3].split(',')
-                    else:
-                        # there was nothing after the trailing :, so they don't want to run a source_cmd at all
-                        self.source_cmd = None
+                if source_cmd:
+                    self.source_cmd = source_cmd.split(',')
+                elif source_cmd == '':
+                    # there was nothing after the trailing :, so they don't want to run a source_cmd at all
+                    # otherwise 'make sources' will be there as a default
+                    self.source_cmd = None
                 break
         if not is_allowed:
-            raise koji.BuildError('%s:%s is not in the list of allowed SCMs' % (self.host, self.repository))
+            raise koji.BuildError('%s:%s is not in the list of allowed SCMs' \
+                    % (self._host_with_port(), self.repository))
 
     def checkout(self, scmdir, session=None, uploadpath=None, logfile=None):
         """
@@ -377,6 +416,8 @@ class SCM(object):
                         (self.scmtype, ' '.join(cmd), os.path.basename(logfile)))
 
         if self.scmtype == 'CVS':
+            if self.port:
+                raise koji.BuildError("CVS doesn't support non-standard port")
             pserver = ':pserver:%s@%s:%s' % ((self.user or 'anonymous'), self.host, self.repository)
             module_checkout_cmd = ['cvs', '-d', pserver, 'checkout', '-r', self.revision, self.module]
             common_checkout_cmd = ['cvs', '-d', pserver, 'checkout', 'common']
@@ -384,6 +425,8 @@ class SCM(object):
         elif self.scmtype == 'CVS+SSH':
             if not self.user:
                 raise koji.BuildError('No user specified for repository access scheme: %s' % self.scheme)
+            if self.port:
+                raise koji.BuildError("CVS+SSH doesn't support non-standard port")
 
             cvsserver = ':ext:%s@%s:%s' % (self.user, self.host, self.repository)
             module_checkout_cmd = ['cvs', '-d', cvsserver, 'checkout', '-r', self.revision, self.module]
@@ -394,7 +437,7 @@ class SCM(object):
             scheme = self.scheme
             if '+' in scheme:
                 scheme = scheme.split('+')[1]
-            gitrepo = '%s%s%s' % (scheme, self.host, self.repository)
+            gitrepo = '%s%s%s' % (scheme, self._host_with_port(), self.repository)
             commonrepo = os.path.dirname(gitrepo) + '/common'
             checkout_path = os.path.basename(self.repository)
             if self.repository.endswith('/.git'):
@@ -422,7 +465,7 @@ class SCM(object):
         elif self.scmtype == 'GIT+SSH':
             if not self.user:
                 raise koji.BuildError('No user specified for repository access scheme: %s' % self.scheme)
-            gitrepo = 'git+ssh://%s@%s%s' % (self.user, self.host, self.repository)
+            gitrepo = 'git+ssh://%s@%s%s' % (self.user, self._host_with_port(), self.repository)
             commonrepo = os.path.dirname(gitrepo) + '/common'
             checkout_path = os.path.basename(self.repository)
             if self.repository.endswith('/.git'):
@@ -452,7 +495,7 @@ class SCM(object):
             if '+' in scheme:
                 scheme = scheme.split('+')[1]
 
-            svnserver = '%s%s%s' % (scheme, self.host, self.repository)
+            svnserver = '%s%s%s' % (scheme, self._host_with_port(), self.repository)
             module_checkout_cmd = ['svn', 'checkout', '-r', self.revision, '%s/%s' % (svnserver, self.module), self.module]
             common_checkout_cmd = ['svn', 'checkout', '%s/common' % svnserver]
 
@@ -460,7 +503,7 @@ class SCM(object):
             if not self.user:
                 raise koji.BuildError('No user specified for repository access scheme: %s' % self.scheme)
 
-            svnserver = 'svn+ssh://%s@%s%s' % (self.user, self.host, self.repository)
+            svnserver = 'svn+ssh://%s@%s%s' % (self.user, self._host_with_port(), self.repository)
             module_checkout_cmd = ['svn', 'checkout', '-r', self.revision, '%s/%s' % (svnserver, self.module), self.module]
             common_checkout_cmd = ['svn', 'checkout', '%s/common' % svnserver]
 
