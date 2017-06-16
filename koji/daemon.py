@@ -292,7 +292,7 @@ class SCM(object):
     def _host_with_port(self):
         # helper for hostname with port
         if self.port:
-            return '%s:%s' (self.host, self.port)
+            return '%s:%s' % (self.host, self.port)
         else:
             return self.host
 
