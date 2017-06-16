@@ -72,15 +72,19 @@ class TestSCM(unittest.TestCase):
             !badserver:*
             !maybeserver:/badpath/*
             maybeserver:*:no
+            portserver:7999:*:no
             '''
         good = [
             "git://goodserver/path1#1234",
             "git+ssh://maybeserver/path1#1234",
+            "git://portserver:7999/path1#1234",
             ]
         bad = [
             "cvs://badserver/projects/42#ref",
             "svn://badserver/projects/42#ref",
             "git://maybeserver/badpath/project#1234",
+            "git://portserver/path1#1234",
+            "git://portserver:80/path1#1234",
             ]
         for url in good:
             scm = SCM(url)
