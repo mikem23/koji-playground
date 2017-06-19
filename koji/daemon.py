@@ -221,7 +221,7 @@ class SCM(object):
             self.port = None
         elif len(host_parts) == 2:
             self.host = host_parts[0]
-            self.port = host_parts[1]
+            self.port = int(host_parts[1])
         else:
             raise koji.GenericError('Invalid SCM URL: %s' % url)
         self.repository = path
@@ -357,7 +357,7 @@ class SCM(object):
 
             if port is not None:
                 try:
-                    self.port = int(port)
+                    port = int(port)
                 except (ValueError, TypeError):
                     self.logger.warn('Ignoring incorrectly formatted SCM host:repository: %s' % allowed_scm)
                     continue
