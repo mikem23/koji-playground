@@ -9518,10 +9518,10 @@ class RootExports(object):
             tag = get_tag_id(tag, strict=True)
         return readTaggedArchives(tag, event=event, inherit=inherit, latest=latest, package=package, type=type)
 
-    def listBuilds(self, packageID=None, userID=None, taskID=None, prefix=None, state=None,
-                   volumeID=None,
-                   createdBefore=None, createdAfter=None,
-                   completeBefore=None, completeAfter=None, type=None, typeInfo=None, queryOpts=None):
+    def listBuilds(self, packageID=None, userID=None, taskID=None, prefix=None,
+            state=None, volumeID=None, createdBefore=None, createdAfter=None,
+            completeBefore=None, completeAfter=None, type=None, typeInfo=None,
+            queryOpts=None, withTags=False):
         """List package builds.
         If packageID is specified, restrict the results to builds of the specified package.
         If userID is specified, restrict the results to builds owned by the given user.
@@ -9667,7 +9667,15 @@ class RootExports(object):
                                transform=_fix_extra_field,
                                values=locals(), opts=queryOpts)
 
-        return query.iterate()
+        if withTags:
+            return self._add_build_tags(query.iterate())
+        else:
+            return query.iterate()
+
+    def _add_build_tags(self, builds):
+        for build in builds:
+            build['tags'] = list_tags(build=build['build_id'])
+            yield build
 
     def getLatestBuilds(self, tag, event=None, package=None, type=None):
         """List latest builds for tag (inheritance enabled)"""
