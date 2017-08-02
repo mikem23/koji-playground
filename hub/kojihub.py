@@ -9518,10 +9518,10 @@ class RootExports(object):
             tag = get_tag_id(tag, strict=True)
         return readTaggedArchives(tag, event=event, inherit=inherit, latest=latest, package=package, type=type)
 
-    def listBuilds(self, packageID=None, userID=None, taskID=None, prefix=None, state=None,
-                   volumeID=None,
-                   createdBefore=None, createdAfter=None,
-                   completeBefore=None, completeAfter=None, type=None, typeInfo=None, queryOpts=None):
+    def listBuilds(self, packageID=None, userID=None, taskID=None, prefix=None,
+            state=None, volumeID=None, createdBefore=None, createdAfter=None,
+            completeBefore=None, completeAfter=None, type=None, typeInfo=None,
+            queryOpts=None, withTags=False):
         """List package builds.
         If packageID is specified, restrict the results to builds of the specified package.
         If userID is specified, restrict the results to builds owned by the given user.
@@ -9627,6 +9627,11 @@ class RootExports(object):
             if not isinstance(completeAfter, str):
                 completeAfter = datetime.datetime.fromtimestamp(completeAfter).isoformat(' ')
             clauses.append('build.completion_time > %(completeAfter)s')
+        if withTags:
+            fields.append(
+                    ('Array(select tag.name from tag_listing '
+                        'join tag on tag_listing.tag_id=tag.id '
+                        'where build_id=build.id)', 'tags'))
         if type is None:
             pass
         elif type == 'maven':
