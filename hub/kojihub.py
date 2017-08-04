@@ -4715,7 +4715,7 @@ def change_build_volume(build, volume, strict=True):
     _set_build_volume(binfo, volinfo, strict)
 
 
-def _set_build_volume(build, volume, strict=True):
+def _set_build_volume(binfo, volinfo, strict=True):
     """Move a build to a different storage volume"""
     if binfo['volume_id'] == volinfo['id']:
         if strict:
