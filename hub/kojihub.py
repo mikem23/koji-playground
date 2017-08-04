@@ -1527,6 +1527,8 @@ def _direct_tag_build(tag, build, user, force=False):
     insert.make_create(user_id=user_id)
     insert.execute()
     koji.plugin.run_callbacks('postTag', tag=tag, build=build, user=user, force=force)
+    apply_volume_policy(build, strict=False)
+
 
 def _untag_build(tag, build, user_id=None, strict=True, force=False):
     """Untag a build
@@ -1562,6 +1564,7 @@ def _direct_untag_build(tag, build, user, strict=True, force=False):
         nvr = "%(name)s-%(version)s-%(release)s" % build
         raise koji.TagError("build %s not in tag %s" % (nvr, tag['name']))
     koji.plugin.run_callbacks('postUntag', tag=tag, build=build, user=user, force=force, strict=strict)
+    apply_volume_policy(build, strict=False)
 
 
 # tag-group operations
@@ -2169,8 +2172,8 @@ def get_active_tasks(host=None):
         values['host_id'] = host['id']
         clause = '(state = %(ASSIGNED)i AND host_id = %(host_id)i)'
         if values['channels']:
-            clause += ' OR (state = %(FREE)i AND arch IN %(arches)s'
-                            ' AND channel_id IN %(channels)s)'
+            clause += (' OR (state = %(FREE)i AND arch IN %(arches)s'
+                            ' AND channel_id IN %(channels)s)')
         clauses = [clause]
     else:
         clauses = ['state IN (%(FREE)i,%(ASSIGNED)i)']
@@ -4836,7 +4839,7 @@ def apply_volume_policy(build, strict=False):
     if build['volume_id'] == volume['id']:
         # nothing to do
         return
-    _set_build_volume(build, volume, strict=True):
+    _set_build_volume(build, volume, strict=True)
 
 
 def new_build(data):
@@ -11734,6 +11737,7 @@ class HostExports(object):
         task = Task(task_id)
         task.assertHost(host.id)
         result = import_build(srpm, rpms, brmap, task_id, build_id, logs=logs)
+        apply_volume_policy(result, strict=False)
         build_notification(task_id, build_id)
         return result
 
@@ -11757,6 +11761,7 @@ class HostExports(object):
 
         koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
 
+        apply_volume_policy(build_info, strict=False)
         # send email
         build_notification(task_id, build_id)
 
@@ -11863,6 +11868,7 @@ class HostExports(object):
         update.execute()
         koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
 
+        apply_volume_policy(build_info, strict=False)
         # send email
         build_notification(task_id, build_id)
 
@@ -11988,6 +11994,7 @@ class HostExports(object):
         update.execute()
         koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
 
+        apply_volume_policy(build_info, strict=False)
         # send email
         build_notification(task_id, build_id)
 
