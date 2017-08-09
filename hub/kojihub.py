@@ -4791,24 +4791,32 @@ def _set_build_volume(binfo, volinfo, strict=True):
     koji.plugin.run_callbacks('postBuildStateChange', attribute='volume_id', old=old_binfo['volume_id'], new=volinfo['id'], info=binfo)
 
 
-def pick_build_volume(build):
-    """Given a build, apply policy to determine what the volume should be
+def check_volume_policy(data, strict=False):
+    """Check volume policy for the given data
 
-    Returns None if no match
-    Raises exception on bad policies
+    If strict is True, raises exception on bad policies or no matches
+    Returns volume info, or None if no match
     """
-    policy_data = {'build': build}
-    ruleset = context.policy.get('volume')
-    result = ruleset.apply(policy_data)
+    result = None
+    try:
+        ruleset = context.policy.get('volume')
+        result = ruleset.apply(data)
+    except Exception:
+        logger.error('Volume policy error')
+        if strict:
+            raise
     if result is None:
-        logger.warn('No volume policy match for build %s', build)
+        if strict:
+            raise koji.GenericError('No volume policy match')
+        logger.warn('No volume policy match')
         return None
-    logger.debug('Volume policy returned %s for build %s', result, build)
+    logger.debug('Volume policy returned %s', result)
     vol = lookup_name('volume', result)
     if not vol:
-        logger.error('Volume policy returned unknown volume %s for %s',
-                result, build)
-        raise koji.GenericError("Policy returned invalid volume: %s" % result)
+        if strict:
+            raise koji.GenericError("Policy returned invalid volume: %s" % result)
+        logger.error('Volume policy returned unknown volume %s', result)
+        return None
     return vol
 
 
@@ -4821,22 +4829,11 @@ def apply_volume_policy(build, strict=False):
     If strict is True, and exception will be raised. Otherwise, the existing
     volume we be retained (or DEFAULT will be used if the build has no volume)
     """
-    volume = None
-    try:
-        volume = pick_build_volume(build)
-    except Exception:
-        logger.error('Volume policy error for %s', build)
-        if strict:
-            raise
+    policy_data = {'build': build}
+    volume = check_volume_policy(build, strict=strict)
     if volume is None:
-        # no policy match or bad policy
-        if strict:
-            raise koji.GenericError('Cannot determine volume for build %s'
-                            % build)
         # just leave the build where it is
-        logger.debug('Could not determine volume for %s', build)
         return
-    # at this point, we should have the intended volume
     if build['volume_id'] == volume['id']:
         # nothing to do
         return
@@ -5193,6 +5190,7 @@ class CG_Importer(object):
         self.prep_outputs()
 
         self.assert_policy()
+        self.set_volume()
 
         koji.plugin.run_callbacks('preImport', type='cg', metadata=metadata,
                 directory=directory)
@@ -5206,8 +5204,6 @@ class CG_Importer(object):
         koji.plugin.run_callbacks('postImport', type='cg', metadata=metadata,
                                   directory=directory, build=self.buildinfo)
 
-        # importing should probably be more subtle about volume
-        apply_volume_policy(self.buildinfo, strict=False)
         return self.buildinfo
 
 
@@ -5264,6 +5260,23 @@ class CG_Importer(object):
             # TODO: provide more data
         }
         assert_policy('cg_import', policy_data)
+
+
+    def set_volume(self):
+        """Use policy to determine what the volume should be"""
+        # we have to be careful and provide sufficient data
+        policy_data = {
+                'build': self.buildinfo,
+                'package': self.buildinfo['name'],
+                'source': self.buildinfo['source'],
+                'cgs': self.cgs,
+                'volume': 'DEFAULT',  # ???
+                'cg_import': True,
+                }
+        vol = check_volume_policy(policy_data, strict=False)
+        if vol:
+            self.buildinfo['volume_id'] = vol['id']
+            self.buildinfo['volume_name'] = vol['name']
 
 
     def prep_build(self):
