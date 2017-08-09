@@ -5022,6 +5022,7 @@ class RPMBuildImporter(object):
         self.check_files()
         self.rpms = check_noarch_rpms(self.uploadpath, self.rpms)
         self.check_buildroots()
+        self.prep_build()
         binfo = self.get_build()
 
         koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
@@ -5046,34 +5047,47 @@ class RPMBuildImporter(object):
             BuildRoot(br_id)
             found[br_id] = 1
 
-    def get_build(self):
-        #read srpm info
+    def prep_build(self):
         fn = "%s/%s" % (self.uploadpath, self.srpm)
-        build = koji.get_header_fields(fn, ('name', 'version', 'release', 'epoch',
-                                            'sourcepackage'))
-        if build['sourcepackage'] != 1:
+        fields = ('name', 'version', 'release', 'epoch', 'sourcepackage')
+        bdata = koji.get_header_fields(fn, fields)
+        if bdata['sourcepackage'] != 1:
             raise koji.GenericError("not a source package: %s" % fn)
-        build['task_id'] = self.task_id
+        bdata['task_id'] = self.task_id
+        self.bdata = bdata
+        if self.build_id is not None:
+            self.check_existing_build()
+
+    def check_existing_build():
+        # build_id was passed in - sanity check
+        binfo = get_build(self.build_id, strict=True)
+        for key in ('name', 'version', 'release', 'epoch', 'task_id'):
+            if self.bdata[key] != binfo[key]:
+                raise koji.GenericError(
+                        "Unable to complete build: %s mismatch (build: %s, "
+                        "rpm: %s)" % (key, binfo[key], build[key]))
+        if binfo['state'] != koji.BUILD_STATES['BUILDING']:
+            raise koji.GenericError("Unable to complete build: state is %s" \
+                    % koji.BUILD_STATES[binfo['state']])
+        self.binfo = binfo
+
+    def get_build(self):
         if self.build_id is None:
-            self.build_id = new_build(build)
+            self.build_id = new_build(self.bdata)
             binfo = get_build(self.build_id, strict=True)
             new_typed_build(binfo, 'rpm')
         else:
-            #build_id was passed in - sanity check
-            binfo = get_build(self.build_id, strict=True)
+            # recycled build -- update build state
+            binfo = self.binfo
             st_complete = koji.BUILD_STATES['COMPLETE']
-            koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
-            for key in ('name', 'version', 'release', 'epoch', 'task_id'):
-                if build[key] != binfo[key]:
-                    raise koji.GenericError("Unable to complete build: %s mismatch (build: %s, rpm: %s)" % (key, binfo[key], build[key]))
-            if binfo['state'] != koji.BUILD_STATES['BUILDING']:
-                raise koji.GenericError("Unable to complete build: state is %s" \
-                        % koji.BUILD_STATES[binfo['state']])
-            #update build state
+            build_id = self.build_id
+            koji.plugin.run_callbacks('preBuildStateChange', attribute='state',
+                    old=binfo['state'], new=st_complete, info=binfo)
             update = """UPDATE build SET state=%(st_complete)i,completion_time=NOW()
             WHERE id=%(build_id)i"""
             _dml(update, locals())
-            koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
+            koji.plugin.run_callbacks('postBuildStateChange', attribute='state',
+                    old=binfo['state'], new=st_complete, info=binfo)
         return binfo
 
     def import_rpms(self):
