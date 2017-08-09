@@ -5012,21 +5012,32 @@ class RPMBuildImporter(object):
         self.task_id = task_id
         self.build_id = build_id
         self.logs =logs
+        self.uploadpath = koji.pathinfo.work()
 
     def do_import(self):
         koji.plugin.run_callbacks('preImport', type='build', srpm=self.srpm,
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=None, logs=self.logs)
-        uploadpath = koji.pathinfo.work()
-        #verify files exist
+
+        self.check_files()
+        self.rpms = check_noarch_rpms(self.uploadpath, self.rpms)
+        self.check_buildroots()
+        binfo = self.get_build()
+
+        koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
+                rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
+                build_id=self.build_id, build=binfo, logs=self.logs)
+        return binfo
+
+    def check_files(self):
+        """verify files exist"""
         for relpath in [self.srpm] + self.rpms:
-            fn = "%s/%s" % (uploadpath, relpath)
+            fn = "%s/%s" % (self.uploadpath, relpath)
             if not os.path.exists(fn):
                 raise koji.GenericError("no such file: %s" % fn)
 
-        rpms = check_noarch_rpms(uploadpath, self.rpms)
-
-        #verify buildroot ids from brmap
+    def check_buildroots(self):
+        """verify buildroot ids from brmap"""
         found = {}
         for br_id in self.brmap.values():
             if br_id in found:
@@ -5035,8 +5046,9 @@ class RPMBuildImporter(object):
             BuildRoot(br_id)
             found[br_id] = 1
 
+    def get_build(self):
         #read srpm info
-        fn = "%s/%s" % (uploadpath, self.srpm)
+        fn = "%s/%s" % (self.uploadpath, self.srpm)
         build = koji.get_header_fields(fn, ('name', 'version', 'release', 'epoch',
                                             'sourcepackage'))
         if build['sourcepackage'] != 1:
@@ -5062,23 +5074,24 @@ class RPMBuildImporter(object):
             WHERE id=%(build_id)i"""
             _dml(update, locals())
             koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
+        return binfo
+
+    def import_rpms(self):
         # now to handle the individual rpms
         for relpath in [self.srpm] + self.rpms:
-            fn = "%s/%s" % (uploadpath, relpath)
+            fn = "%s/%s" % (self.uploadpath, relpath)
             rpminfo = import_rpm(fn, binfo, self.brmap.get(relpath))
             import_rpm_file(fn, binfo, rpminfo)
             add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
+
+    def import_logs(self):
         if self.logs:
             for key, files in self.logs.iteritems():
                 if not key:
                     key = None
                 for relpath in files:
-                    fn = "%s/%s" % (uploadpath, relpath)
+                    fn = "%s/%s" % (self.uploadpath, relpath)
                     import_build_log(fn, binfo, subdir=key)
-        koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
-                rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
-                build_id=self.build_id, build=binfo, logs=self.logs)
-        return binfo
 
 
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
