@@ -5273,7 +5273,7 @@ class CG_Importer(object):
                 'volume': 'DEFAULT',  # ???
                 'cg_import': True,
                 }
-        vol = check_volume_policy(build, strict=False)
+        vol = check_volume_policy(policy_data, strict=False)
         if vol:
             self.buildinfo['volume_id'] = vol['id']
             self.buildinfo['volume_name'] = vol['name']
