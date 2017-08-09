@@ -4995,6 +4995,7 @@ def import_build(srpm, rpms, brmap=None, task_id=None, build_id=None, logs=None)
         brmap - dictionary mapping [s]rpms to buildroot ids
         task_id - associate the build with a task
         build_id - build is a finalization of existing entry
+        logs - a dictionary of logfiles, indexed by subdir (arch)
     """
     bimp = RPMBuildImporter(srpm, rpms, brmap, task_id, build_id, logs)
     bimp.do_import()
