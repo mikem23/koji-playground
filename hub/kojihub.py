@@ -4805,6 +4805,7 @@ def pick_build_volume(build):
     if result is None:
         logger.warn('No volume policy match for build %s', build)
         return None
+    logger.debug('Volume policy returned %s for build %s', result, build)
     vol = lookup_name('volume', result)
     if not vol:
         logger.error('Volume policy returned unknown volume %s for %s',
@@ -4826,6 +4827,7 @@ def apply_volume_policy(build, strict=False):
     try:
         volume = pick_build_volume(build)
     except Exception:
+        logger.error('Volume policy error for %s', build)
         if strict:
             raise
     if volume is None:
@@ -4834,6 +4836,7 @@ def apply_volume_policy(build, strict=False):
             raise koji.GenericError('Cannot determine volume for build %s'
                             % build)
         # just leave the build where it is
+        logger.debug('Could not determine volume for %s', build)
         return
     # at this point, we should have the intended volume
     if build['volume_id'] == volume['id']:
@@ -5205,6 +5208,7 @@ class CG_Importer(object):
         koji.plugin.run_callbacks('postImport', type='cg', metadata=metadata,
                                   directory=directory, build=self.buildinfo)
 
+        apply_volume_policy(self.buildinfo, strict=False)
         return self.buildinfo
 
 
