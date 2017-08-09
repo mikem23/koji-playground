@@ -4984,6 +4984,7 @@ def check_noarch_rpms(basepath, rpms):
 
     return result
 
+
 def import_build(srpm, rpms, brmap=None, task_id=None, build_id=None, logs=None):
     """Import a build into the database (single transaction)
 
@@ -4995,71 +4996,89 @@ def import_build(srpm, rpms, brmap=None, task_id=None, build_id=None, logs=None)
         task_id - associate the build with a task
         build_id - build is a finalization of existing entry
     """
-    if brmap is None:
-        brmap = {}
-    koji.plugin.run_callbacks('preImport', type='build', srpm=srpm, rpms=rpms, brmap=brmap,
-                              task_id=task_id, build_id=build_id, build=None, logs=logs)
-    uploadpath = koji.pathinfo.work()
-    #verify files exist
-    for relpath in [srpm] + rpms:
-        fn = "%s/%s" % (uploadpath, relpath)
-        if not os.path.exists(fn):
-            raise koji.GenericError("no such file: %s" % fn)
+    bimp = RPMBuildImporter(srpm, rpms, brmap, task_id, build_id, logs)
+    bimp.do_import()
 
-    rpms = check_noarch_rpms(uploadpath, rpms)
 
-    #verify buildroot ids from brmap
-    found = {}
-    for br_id in brmap.values():
-        if br_id in found:
-            continue
-        found[br_id] = 1
-        #this will raise an exception if the buildroot id is invalid
-        BuildRoot(br_id)
+# TODO: eventually combine this with CG_Importer
+class RPMBuildImporter(object):
 
-    #read srpm info
-    fn = "%s/%s" % (uploadpath, srpm)
-    build = koji.get_header_fields(fn, ('name', 'version', 'release', 'epoch',
-                                        'sourcepackage'))
-    if build['sourcepackage'] != 1:
-        raise koji.GenericError("not a source package: %s" % fn)
-    build['task_id'] = task_id
-    if build_id is None:
-        build_id = new_build(build)
-        binfo = get_build(build_id, strict=True)
-        new_typed_build(binfo, 'rpm')
-    else:
-        #build_id was passed in - sanity check
-        binfo = get_build(build_id, strict=True)
-        st_complete = koji.BUILD_STATES['COMPLETE']
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
-        for key in ('name', 'version', 'release', 'epoch', 'task_id'):
-            if build[key] != binfo[key]:
-                raise koji.GenericError("Unable to complete build: %s mismatch (build: %s, rpm: %s)" % (key, binfo[key], build[key]))
-        if binfo['state'] != koji.BUILD_STATES['BUILDING']:
-            raise koji.GenericError("Unable to complete build: state is %s" \
-                    % koji.BUILD_STATES[binfo['state']])
-        #update build state
-        update = """UPDATE build SET state=%(st_complete)i,completion_time=NOW()
-        WHERE id=%(build_id)i"""
-        _dml(update, locals())
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
-    # now to handle the individual rpms
-    for relpath in [srpm] + rpms:
-        fn = "%s/%s" % (uploadpath, relpath)
-        rpminfo = import_rpm(fn, binfo, brmap.get(relpath))
-        import_rpm_file(fn, binfo, rpminfo)
-        add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
-    if logs:
-        for key, files in logs.iteritems():
-            if not key:
-                key = None
-            for relpath in files:
-                fn = "%s/%s" % (uploadpath, relpath)
-                import_build_log(fn, binfo, subdir=key)
-    koji.plugin.run_callbacks('postImport', type='build', srpm=srpm, rpms=rpms, brmap=brmap,
-                              task_id=task_id, build_id=build_id, build=binfo, logs=logs)
-    return binfo
+    def __init__(self, srpm, rpms, brmap, task_id, build_id, logs):
+        if brmap is None:
+            brmap = {}
+        self.srpm = srpm
+        self.rpms = rpms
+        self.brmap = brmap
+        self.task_id = task_id
+        self.build_id = build_id
+        self.logs =logs
+
+    def do_import(self):
+        koji.plugin.run_callbacks('preImport', type='build', srpm=self.srpm,
+                rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
+                build_id=self.build_id, build=None, logs=self.logs)
+        uploadpath = koji.pathinfo.work()
+        #verify files exist
+        for relpath in [self.srpm] + self.rpms:
+            fn = "%s/%s" % (uploadpath, relpath)
+            if not os.path.exists(fn):
+                raise koji.GenericError("no such file: %s" % fn)
+
+        rpms = check_noarch_rpms(uploadpath, self.rpms)
+
+        #verify buildroot ids from brmap
+        found = {}
+        for br_id in self.brmap.values():
+            if br_id in found:
+                continue
+            #this will raise an exception if the buildroot id is invalid
+            BuildRoot(br_id)
+            found[br_id] = 1
+
+        #read srpm info
+        fn = "%s/%s" % (uploadpath, self.srpm)
+        build = koji.get_header_fields(fn, ('name', 'version', 'release', 'epoch',
+                                            'sourcepackage'))
+        if build['sourcepackage'] != 1:
+            raise koji.GenericError("not a source package: %s" % fn)
+        build['task_id'] = self.task_id
+        if self.build_id is None:
+            self.build_id = new_build(build)
+            binfo = get_build(self.build_id, strict=True)
+            new_typed_build(binfo, 'rpm')
+        else:
+            #build_id was passed in - sanity check
+            binfo = get_build(self.build_id, strict=True)
+            st_complete = koji.BUILD_STATES['COMPLETE']
+            koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
+            for key in ('name', 'version', 'release', 'epoch', 'task_id'):
+                if build[key] != binfo[key]:
+                    raise koji.GenericError("Unable to complete build: %s mismatch (build: %s, rpm: %s)" % (key, binfo[key], build[key]))
+            if binfo['state'] != koji.BUILD_STATES['BUILDING']:
+                raise koji.GenericError("Unable to complete build: state is %s" \
+                        % koji.BUILD_STATES[binfo['state']])
+            #update build state
+            update = """UPDATE build SET state=%(st_complete)i,completion_time=NOW()
+            WHERE id=%(build_id)i"""
+            _dml(update, locals())
+            koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
+        # now to handle the individual rpms
+        for relpath in [self.srpm] + self.rpms:
+            fn = "%s/%s" % (uploadpath, relpath)
+            rpminfo = import_rpm(fn, binfo, self.brmap.get(relpath))
+            import_rpm_file(fn, binfo, rpminfo)
+            add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
+        if self.logs:
+            for key, files in self.logs.iteritems():
+                if not key:
+                    key = None
+                for relpath in files:
+                    fn = "%s/%s" % (uploadpath, relpath)
+                    import_build_log(fn, binfo, subdir=key)
+        koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
+                rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
+                build_id=self.build_id, build=binfo, logs=self.logs)
+        return binfo
 
 
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
