@@ -106,3 +106,85 @@ class TestPolicyGetCGs(unittest.TestCase):
         with self.assertRaises(koji.GenericError):
             kojihub.policy_get_cgs({'package': 'foobar'})
         self.get_build.assert_not_called()
+
+
+class TestBuildTagTest(unittest.TestCase):
+
+    def setUp(self):
+        self.get_tag = mock.patch('kojihub.get_tag').start()
+        self.list_rpms = mock.patch('kojihub.list_rpms').start()
+        self.list_archives = mock.patch('kojihub.list_archives').start()
+        self.get_buildroot = mock.patch('kojihub.get_buildroot').start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+    def test_build_tag_given(self):
+        obj = kojihub.BuildTagTest('buildtag foo*')
+        data = {'build_tag': 'TAGINFO'}
+        self.get_tag.return_value = {'name': 'foo-3.0-build'}
+        self.assertTrue(obj.run(data))
+        self.list_rpms.assert_not_called()
+        self.list_archives.assert_not_called()
+        self.get_buildroot.assert_not_called()
+        self.get_tag.assert_called_once_with('TAGINFO', strict=True)
+
+    def test_build_tag_given_alt(self):
+        obj = kojihub.BuildTagTest('buildtag foo*')
+        data = {'build_tag': 'TAGINFO'}
+        self.get_tag.return_value = {'name': 'foo-3.0-build'}
+        self.assertTrue(obj.run(data))
+        self.get_tag.return_value = {'name': 'bar-1.2-build'}
+        self.assertFalse(obj.run(data))
+
+        obj = kojihub.BuildTagTest('buildtag foo-3* foo-4* fake-*')
+        data = {'build_tag': 'TAGINFO', 'build': 'BUILDINFO'}
+        self.get_tag.return_value = {'name': 'foo-4.0-build'}
+        self.assertTrue(obj.run(data))
+        self.get_tag.return_value = {'name': 'foo-3.0.1-build'}
+        self.assertTrue(obj.run(data))
+        self.get_tag.return_value = {'name': 'fake-0.99-build'}
+        self.assertTrue(obj.run(data))
+        self.get_tag.return_value = {'name': 'foo-2.1'}
+        self.assertFalse(obj.run(data))
+        self.get_tag.return_value = {'name': 'foo-5.5-alt'}
+        self.assertFalse(obj.run(data))
+        self.get_tag.return_value = {'name': 'baz-2-candidate'}
+        self.assertFalse(obj.run(data))
+
+        self.list_rpms.assert_not_called()
+        self.list_archives.assert_not_called()
+        self.get_buildroot.assert_not_called()
+
+    def _fakebr(self, br_id):
+        return {'tag_name': self._brtag(br_id)}
+
+    def _brtag(self, br_id):
+        if br_id == '':
+            return None
+        return br_id
+
+    def test_build_tag_from_build(self):
+        # Note: the match is for any buildroot tag
+        brtags = [None, '', 'a', 'b', 'c', 'd', 'not-foo-5', 'foo-3-build']
+        self.list_rpms.return_value = [{'buildroot_id': x} for x in brtags]
+        self.list_archives.return_value = [{'buildroot_id': x} for x in brtags]
+        self.get_buildroot.side_effect = self._fakebr
+
+        obj = kojihub.BuildTagTest('buildtag foo-*')
+        data = {'build': 'BUILDINFO'}
+        self.assertTrue(obj.run(data))
+
+        obj = kojihub.BuildTagTest('buildtag bar-*')
+        data = {'build': 'BUILDINFO'}
+        self.assertFalse(obj.run(data))
+
+        self.get_tag.assert_not_called()
+
+    def test_build_tag_no_info(self):
+        obj = kojihub.BuildTagTest('buildtag foo*')
+        data = {}
+        self.assertFalse(obj.run(data))
+        self.list_rpms.assert_not_called()
+        self.list_archives.assert_not_called()
+        self.get_buildroot.assert_not_called()
