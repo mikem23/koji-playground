@@ -5014,6 +5014,7 @@ class RPMBuildImporter(object):
         self.build_id = build_id
         self.logs =logs
         self.uploadpath = koji.pathinfo.work()
+        self.buildinfo = None
 
     def do_import(self):
         koji.plugin.run_callbacks('preImport', type='build', srpm=self.srpm,
@@ -5024,7 +5025,10 @@ class RPMBuildImporter(object):
         self.rpms = check_noarch_rpms(self.uploadpath, self.rpms)
         self.check_buildroots()
         self.prep_build()
+        self.set_volume()
         binfo = self.get_build()
+        self.import_rpms()
+        self.import_logs()
 
         koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
@@ -5055,31 +5059,46 @@ class RPMBuildImporter(object):
         if bdata['sourcepackage'] != 1:
             raise koji.GenericError("not a source package: %s" % fn)
         bdata['task_id'] = self.task_id
-        self.bdata = bdata
+        self.buildinfo = bdata
         if self.build_id is not None:
             self.check_existing_build()
 
-    def check_existing_build():
+    def check_existing_build(self):
         # build_id was passed in - sanity check
         binfo = get_build(self.build_id, strict=True)
         for key in ('name', 'version', 'release', 'epoch', 'task_id'):
-            if self.bdata[key] != binfo[key]:
+            if self.buildinfo[key] != binfo[key]:
                 raise koji.GenericError(
                         "Unable to complete build: %s mismatch (build: %s, "
                         "rpm: %s)" % (key, binfo[key], build[key]))
         if binfo['state'] != koji.BUILD_STATES['BUILDING']:
             raise koji.GenericError("Unable to complete build: state is %s" \
                     % koji.BUILD_STATES[binfo['state']])
-        self.binfo = binfo
+        self.buildinfo = binfo
+
+    def set_volume(self):
+        """Use policy to determine what the volume should be"""
+        # we have to be careful and provide sufficient data
+        policy_data = {
+                'prebuild': self.buildinfo,
+                'package': self.buildinfo['name'],
+                #'source': self.buildinfo['source'],
+                'volume': 'DEFAULT',  # ??
+                'cg_import': False,
+                }
+        vol = check_volume_policy(policy_data, strict=False)
+        if vol:
+            self.buildinfo['volume_id'] = vol['id']
+            self.buildinfo['volume_name'] = vol['name']
 
     def get_build(self):
         if self.build_id is None:
-            self.build_id = new_build(self.bdata)
+            self.build_id = new_build(self.buildinfo)
             binfo = get_build(self.build_id, strict=True)
             new_typed_build(binfo, 'rpm')
         else:
             # recycled build -- update build state
-            binfo = self.binfo
+            binfo = self.buildinfo
             st_complete = koji.BUILD_STATES['COMPLETE']
             build_id = self.build_id
             koji.plugin.run_callbacks('preBuildStateChange', attribute='state',
@@ -5092,7 +5111,8 @@ class RPMBuildImporter(object):
         return binfo
 
     def import_rpms(self):
-        # now to handle the individual rpms
+        """Import the individual rpms"""
+        binfo = self.buildinfo
         for relpath in [self.srpm] + self.rpms:
             fn = "%s/%s" % (self.uploadpath, relpath)
             rpminfo = import_rpm(fn, binfo, self.brmap.get(relpath))
@@ -5100,6 +5120,7 @@ class RPMBuildImporter(object):
             add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
 
     def import_logs(self):
+        binfo = self.buildinfo
         if self.logs:
             for key, files in self.logs.iteritems():
                 if not key:
@@ -5313,7 +5334,7 @@ class CG_Importer(object):
         """Use policy to determine what the volume should be"""
         # we have to be careful and provide sufficient data
         policy_data = {
-                'build': self.buildinfo,
+                'prebuild': self.buildinfo,
                 'package': self.buildinfo['name'],
                 'source': self.buildinfo['source'],
                 'cgs': self.cgs,
@@ -11800,7 +11821,6 @@ class HostExports(object):
         task = Task(task_id)
         task.assertHost(host.id)
         result = import_build(srpm, rpms, brmap, task_id, build_id, logs=logs)
-        apply_volume_policy(result, strict=False)
         build_notification(task_id, build_id)
         return result
 
