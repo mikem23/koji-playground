@@ -8157,7 +8157,7 @@ class BuildTagTest(koji.policy.BaseSimpleTest):
             #it is possible that some rpms could have been imported later and hence
             #not have a buildroot.
             #or if the entire build was imported, there will be no buildroots
-            rpms = context.handlers.call('listRPMs', buildID=data['build'])
+            rpms = list_rpms(buildID=data['build'])
             archives = list_archives(buildID=data['build'])
             br_list = [r['buildroot_id'] for r in rpms]
             br_list.extend([a['buildroot_id'] for a in archives])
