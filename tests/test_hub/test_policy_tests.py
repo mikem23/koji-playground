@@ -28,6 +28,17 @@ class TestBasicTests(unittest.TestCase):
         policy_get_pkg.return_value = {'name': 'foobar', 'id': None}
         self.assertTrue(obj.run({}))
 
+    def test_skip_tag_test(self):
+        obj = kojihub.SkipTagTest('skip_tag')
+        data = {'skip_tag': True}
+        self.assertTrue(obj.run(data))
+        data = {'skip_tag': False}
+        self.assertFalse(obj.run(data))
+        data = {'skip_tag': None}
+        self.assertFalse(obj.run(data))
+        data = {}
+        self.assertFalse(obj.run(data))
+
 
 class TestPolicyGetUser(unittest.TestCase):
 
