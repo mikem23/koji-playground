@@ -5098,7 +5098,7 @@ class RPMBuildImporter(object):
             new_typed_build(binfo, 'rpm')
         else:
             # recycled build -- update build state
-            binfo = self.binfo
+            binfo = self.buildinfo
             st_complete = koji.BUILD_STATES['COMPLETE']
             build_id = self.build_id
             koji.plugin.run_callbacks('preBuildStateChange', attribute='state',
