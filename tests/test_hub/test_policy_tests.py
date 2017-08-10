@@ -180,3 +180,11 @@ class TestBuildTagTest(unittest.TestCase):
         self.assertFalse(obj.run(data))
 
         self.get_tag.assert_not_called()
+
+    def test_build_tag_no_info(self):
+        obj = kojihub.BuildTagTest('buildtag foo*')
+        data = {}
+        self.assertFalse(obj.run(data))
+        self.list_rpms.assert_not_called()
+        self.list_archives.assert_not_called()
+        self.get_buildroot.assert_not_called()
