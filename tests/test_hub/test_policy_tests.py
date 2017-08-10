@@ -188,3 +188,24 @@ class TestBuildTagTest(unittest.TestCase):
         self.list_rpms.assert_not_called()
         self.list_archives.assert_not_called()
         self.get_buildroot.assert_not_called()
+
+
+class TestHasTagTest(unittest.TestCase):
+
+    def setUp(self):
+        self.list_tags = mock.patch('kojihub.list_tags').start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+    def test_has_tag_simple(self):
+        obj = kojihub.HasTagTest('hastag *-candidate')
+        tags = ['foo-1.0', 'foo-2.0', 'foo-3.0-candidate']
+        self.list_tags.return_value = [{'name': t} for t in tags]
+        data = {'build': 'NVR'}
+        self.assertTrue(obj.run(data))
+        self.list_tags.assert_called_once_with(build='NVR')
+
+        # check no match case
+        self.list_tags.return_value = []
+        self.assertFalse(obj.run(data))
