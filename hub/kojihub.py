@@ -5025,6 +5025,7 @@ class RPMBuildImporter(object):
         self.rpms = check_noarch_rpms(self.uploadpath, self.rpms)
         self.check_buildroots()
         self.prep_build()
+        self.set_volume()
         binfo = self.get_build()
         self.import_rpms()
         self.import_logs()
