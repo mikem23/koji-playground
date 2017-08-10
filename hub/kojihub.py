@@ -5097,15 +5097,17 @@ class RPMBuildImporter(object):
             binfo = get_build(self.build_id, strict=True)
             new_typed_build(binfo, 'rpm')
         else:
-            # recycled build -- update build state
+            # normal case for completeBuild -- existing entry in BUILDING state
             binfo = self.buildinfo
             st_complete = koji.BUILD_STATES['COMPLETE']
-            build_id = self.build_id
+            update = UpdateProcessor('build', clauses='id=%(build_id)s',
+                        values=vars(self))
+            update.set(state=st_complete)
+            update.set(volume_id=binfo['volume_id'])
+            update.rawset(completion_time='NOW()')
             koji.plugin.run_callbacks('preBuildStateChange', attribute='state',
                     old=binfo['state'], new=st_complete, info=binfo)
-            update = """UPDATE build SET state=%(st_complete)i,completion_time=NOW()
-            WHERE id=%(build_id)i"""
-            _dml(update, locals())
+            update.execute()
             koji.plugin.run_callbacks('postBuildStateChange', attribute='state',
                     old=binfo['state'], new=st_complete, info=binfo)
         return binfo
