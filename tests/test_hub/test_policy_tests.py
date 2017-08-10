@@ -160,14 +160,23 @@ class TestBuildTagTest(unittest.TestCase):
         return {'tag_name': self._brtag(br_id)}
 
     def _brtag(self, br_id):
+        if br_id == '':
+            return None
         return br_id
 
     def test_build_tag_from_build(self):
-        brtags = ['foo-3-build', 'a', 'b', 'c', 'd', 'not-foo-5', None]
+        # Note: the match is for any buildroot tag
+        brtags = [None, '', 'a', 'b', 'c', 'd', 'not-foo-5', 'foo-3-build']
         self.list_rpms.return_value = [{'buildroot_id': x} for x in brtags]
         self.list_archives.return_value = [{'buildroot_id': x} for x in brtags]
         self.get_buildroot.side_effect = self._fakebr
+
         obj = kojihub.BuildTagTest('buildtag foo-*')
         data = {'build': 'BUILDINFO'}
         self.assertTrue(obj.run(data))
+
+        obj = kojihub.BuildTagTest('buildtag bar-*')
+        data = {'build': 'BUILDINFO'}
+        self.assertFalse(obj.run(data))
+
         self.get_tag.assert_not_called()
