@@ -5100,7 +5100,7 @@ class RPMBuildImporter(object):
             # normal case for completeBuild -- existing entry in BUILDING state
             binfo = self.buildinfo
             st_complete = koji.BUILD_STATES['COMPLETE']
-            update = UpdateProcessor('build', clauses='id=%(build_id)s',
+            update = UpdateProcessor('build', clauses=['id=%(build_id)s'],
                         values=vars(self))
             update.set(state=st_complete)
             update.set(volume_id=binfo['volume_id'])
