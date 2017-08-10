@@ -5063,7 +5063,7 @@ class RPMBuildImporter(object):
         if self.build_id is not None:
             self.check_existing_build()
 
-    def check_existing_build():
+    def check_existing_build(self):
         # build_id was passed in - sanity check
         binfo = get_build(self.build_id, strict=True)
         for key in ('name', 'version', 'release', 'epoch', 'task_id'):
