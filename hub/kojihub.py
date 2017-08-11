@@ -8033,9 +8033,9 @@ def policy_get_build_tags(data):
     # pull cg info out
     # note that br_id will be None if a component had no buildroot
     if 'build_tag' in data:
-        return [data['build_tag']]
+        return [get_tag(data['build_tag'], strict=True)['name']]
     elif 'build_tags' in data:
-        return data['build_tags']
+        return [get_tag(t, strict=True)['name'] for t in data['build_tags']]
     elif 'build' in data:
         tags = set()
         for br_id in policy_get_brs(data):
@@ -8044,6 +8044,8 @@ def policy_get_build_tags(data):
             else:
                 tags.add(get_buildroot(br_id, strict=True)['tag_name'])
         return tags
+    else:
+        return []
 
 
 class NewPackageTest(koji.policy.BaseSimpleTest):
@@ -8179,8 +8181,9 @@ class SkipTagTest(koji.policy.BaseSimpleTest):
     def run(self, data):
         return bool(data.get('skip_tag'))
 
+
 class BuildTagTest(koji.policy.BaseSimpleTest):
-    """Check the build tag of the build
+    """Check the build tag(s) of the build
 
     If build_tag is not provided in policy data, it is determined by the
     buildroots of the component rpms
@@ -8188,29 +8191,15 @@ class BuildTagTest(koji.policy.BaseSimpleTest):
     name = 'buildtag'
     def run(self, data):
         args = self.str.split()[1:]
-        if 'build_tag' in data:
-            tagname = get_tag(data['build_tag'], strict=True)['name']
-            for pattern in args:
-                if fnmatch.fnmatch(tagname, pattern):
-                    return True
-            #else
-            return False
-        elif 'build' in data:
-            #determine build tag from buildroots
-            #in theory, we should find only one unique build tag
-            #it is possible that some rpms could have been imported later and hence
-            #not have a buildroot.
-            #or if the entire build was imported, there will be no buildroots
-            for tagname in policy_get_build_tags(data):
-                if tagname is None:
-                    # content generator buildroots might not have tag info
-                    continue
-                if multi_fnmatch(tagname, args):
-                    return True
-            #otherwise...
-            return False
-        else:
-            return False
+        for tagname in policy_get_build_tags(data):
+            if tagname is None:
+                # content generator buildroots might not have tag info
+                continue
+            if multi_fnmatch(tagname, args):
+                return True
+        #otherwise...
+        return False
+
 
 class ImportedTest(koji.policy.BaseSimpleTest):
     """Check if any part of a build was imported
