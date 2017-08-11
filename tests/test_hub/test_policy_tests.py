@@ -114,14 +114,15 @@ class TestPolicyGetCGs(unittest.TestCase):
         self.get_build.called_once_with('NVR', strict=True)
 
     def test_policy_get_cg_nobuild(self):
-        with self.assertRaises(koji.GenericError):
-            kojihub.policy_get_cgs({'package': 'foobar'})
+        result = kojihub.policy_get_cgs({'package': 'foobar'})
         self.get_build.assert_not_called()
+        self.assertEqual(result, set())
 
 
 class TestBuildTagTest(unittest.TestCase):
 
     def setUp(self):
+        self.get_build = mock.patch('kojihub.get_build').start()
         self.get_tag = mock.patch('kojihub.get_tag').start()
         self.list_rpms = mock.patch('kojihub.list_rpms').start()
         self.list_archives = mock.patch('kojihub.list_archives').start()
@@ -167,7 +168,7 @@ class TestBuildTagTest(unittest.TestCase):
         self.list_archives.assert_not_called()
         self.get_buildroot.assert_not_called()
 
-    def _fakebr(self, br_id):
+    def _fakebr(self, br_id, strict=None):
         return {'tag_name': self._brtag(br_id)}
 
     def _brtag(self, br_id):
