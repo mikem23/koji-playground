@@ -5083,6 +5083,7 @@ class RPMBuildImporter(object):
                 'prebuild': self.buildinfo,
                 'package': self.buildinfo['name'],
                 #'source': self.buildinfo['source'],
+                'buildroots': self.brmap.values(),
                 'volume': 'DEFAULT',  # ??
                 'cg_import': False,
                 }
@@ -8002,27 +8003,47 @@ def policy_get_pkg(data):
     raise koji.GenericError("policy requires package data")
 
 
-def policy_get_cgs(data):
+def policy_get_brs(data):
     """Determine content generators from policy data"""
 
-    if 'build' not in data:
-        raise koji.GenericError("policy requires build data")
-    binfo = get_build(data['build'], strict=True)
+    if 'buildroots' in data:
+        return set(data['buildroots'])
+    elif 'build' in data:
+        binfo = get_build(data['build'], strict=True)
+        rpm_brs = [r['buildroot_id'] for r in list_rpms(buildID=binfo['id'])]
+        archive_brs = [a['buildroot_id'] for a in list_archives(buildID=binfo['id'])]
+        return set(rpm_brs + archive_brs)
+    else:
+        return set()
 
-    # first get buildroots used
-    rpm_brs = [r['buildroot_id'] for r in list_rpms(buildID=binfo['id'])]
-    archive_brs = [a['buildroot_id'] for a in list_archives(buildID=binfo['id'])]
 
+def policy_get_cgs(data):
     # pull cg info out
     # note that br_id will be None if a component had no buildroot
     cgs = set()
-    for br_id in set(rpm_brs + archive_brs):
+    for br_id in policy_get_brs(data):
         if br_id is None:
             cgs.add(None)
         else:
             cgs.add(get_buildroot(br_id, strict=True)['cg_name'])
-
     return cgs
+
+
+def policy_get_build_tags(data):
+    # pull cg info out
+    # note that br_id will be None if a component had no buildroot
+    if 'build_tag' in data:
+        return [data['build_tag']]
+    elif 'build_tags' in data:
+        return data['build_tags']
+    elif 'build' in data:
+        tags = set()
+        for br_id in policy_get_brs(data):
+            if br_id is None:
+                tags.add(None)
+            else:
+                tags.add(get_buildroot(br_id, strict=True)['tag_name'])
+        return tags
 
 
 class NewPackageTest(koji.policy.BaseSimpleTest):
@@ -8180,20 +8201,12 @@ class BuildTagTest(koji.policy.BaseSimpleTest):
             #it is possible that some rpms could have been imported later and hence
             #not have a buildroot.
             #or if the entire build was imported, there will be no buildroots
-            rpms = list_rpms(buildID=data['build'])
-            archives = list_archives(buildID=data['build'])
-            br_list = [r['buildroot_id'] for r in rpms]
-            br_list.extend([a['buildroot_id'] for a in archives])
-            for br_id in br_list:
-                if br_id is None:
-                    continue
-                tagname = get_buildroot(br_id)['tag_name']
+            for tagname in policy_get_build_tags(data):
                 if tagname is None:
                     # content generator buildroots might not have tag info
                     continue
-                for pattern in args:
-                    if fnmatch.fnmatch(tagname, pattern):
-                        return True
+                if multi_fnmatch(tagname, args):
+                    return True
             #otherwise...
             return False
         else:
