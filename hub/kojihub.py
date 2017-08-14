@@ -5210,10 +5210,7 @@ def _get_build_from_rpm(rpminfo):
     if rpminfo['sourcepackage'] == 1:
         buildinfo = get_build(rpminfo, strict=False)
         if not buildinfo:
-            # create a new build
-            build_id = new_build(rpminfo)
-            # we add the rpm build type below
-            buildinfo = get_build(build_id, strict=True)
+            buildinfo = _new_build_from_rpm(rpminfo)
     else:
         #figure it out from sourcerpm string
         buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
@@ -5226,6 +5223,14 @@ def _get_build_from_rpm(rpminfo):
             nvr = "%(name)s-%(version)s-%(release)s" % buildinfo
             raise koji.GenericError("Build is %s: %s" % (state, nvr))
     return buildinfo
+
+
+def _new_build_from_rpm(rpminfo):
+    """Deal with creating a new build for single rpm imports"""
+    # create a new build
+    build_id = new_build(rpminfo)
+    # we add the rpm build type below
+    buildinfo = get_build(build_id, strict=True)
 
 
 def cg_import(metadata, directory):
