@@ -51,6 +51,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import traceback
 import time
 import types
 import xmlrpclib
@@ -4805,6 +4806,8 @@ def check_volume_policy(data, strict=False):
         logger.error('Volume policy error')
         if strict:
             raise
+        tb_str = ''.join(traceback.format_exception(*sys.exc_info()))
+        logger.debug(tb_str)
     if result is None:
         if strict:
             raise koji.GenericError('No volume policy match')
