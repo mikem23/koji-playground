@@ -5155,25 +5155,7 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
         raise koji.GenericError("bad filename: %s (expected %s)" % (basename, expected))
 
     if buildinfo is None:
-        #figure it out for ourselves
-        if rpminfo['sourcepackage'] == 1:
-            buildinfo = get_build(rpminfo, strict=False)
-            if not buildinfo:
-                # create a new build
-                build_id = new_build(rpminfo)
-                # we add the rpm build type below
-                buildinfo = get_build(build_id, strict=True)
-        else:
-            #figure it out from sourcerpm string
-            buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
-            if buildinfo is None:
-                #XXX - handle case where package is not a source rpm
-                #      and we still need to create a new build
-                raise koji.GenericError('No matching build')
-            state = koji.BUILD_STATES[buildinfo['state']]
-            if state in ('FAILED', 'CANCELED', 'DELETED'):
-                nvr = "%(name)s-%(version)s-%(release)s" % buildinfo
-                raise koji.GenericError("Build is %s: %s" % (state, nvr))
+        buildinfo = _get_build_from_rpm(rpminfo)
     elif not wrapper:
         # only enforce the srpm name matching the build for non-wrapper rpms
         srpmname = "%(name)s-%(version)s-%(release)s.src.rpm" % buildinfo
@@ -5192,7 +5174,7 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
     new_typed_build(buildinfo, 'rpm')
 
     #add rpminfo entry
-    rpminfo['id'] = _singleValue("""SELECT nextval('rpminfo_id_seq')""")
+    rpminfo['id'] = nextval('rpminfo_id_seq')
     rpminfo['build_id'] = buildinfo['id']
     rpminfo['size'] = os.path.getsize(fn)
     rpminfo['payloadhash'] = koji.hex_string(hdr[rpm.RPMTAG_SIGMD5])
@@ -5221,6 +5203,29 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
     rpminfo['build'] = buildinfo
     rpminfo['brootid'] = brootid
     return rpminfo
+
+
+def _get_build_from_rpm(rpminfo):
+    """Figure out build from the rpminfo"""
+    if rpminfo['sourcepackage'] == 1:
+        buildinfo = get_build(rpminfo, strict=False)
+        if not buildinfo:
+            # create a new build
+            build_id = new_build(rpminfo)
+            # we add the rpm build type below
+            buildinfo = get_build(build_id, strict=True)
+    else:
+        #figure it out from sourcerpm string
+        buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
+        if buildinfo is None:
+            #XXX - handle case where package is not a source rpm
+            #      and we still need to create a new build
+            raise koji.GenericError('No matching build')
+        state = koji.BUILD_STATES[buildinfo['state']]
+        if state in ('FAILED', 'CANCELED', 'DELETED'):
+            nvr = "%(name)s-%(version)s-%(release)s" % buildinfo
+            raise koji.GenericError("Build is %s: %s" % (state, nvr))
+    return buildinfo
 
 
 def cg_import(metadata, directory):
