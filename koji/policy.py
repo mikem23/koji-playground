@@ -310,9 +310,9 @@ class SimpleRuleSet(object):
             if negate:
                 value = not value
             if value:
-                self.logger.debug("rule matched")
                 self.lastrule.append([tests, negate])
                 if isinstance(action, list):
+                    self.logger.debug("matched: entering subrule")
                     # action is a list of subrules
                     ret = self._apply(action, data)
                     if ret is not None:
@@ -320,6 +320,7 @@ class SimpleRuleSet(object):
                     # if ret is None, then none of the subrules matched,
                     # so we keep going
                 else:
+                    self.logger.debug("matched: action=%s", action)
                     return action
         return None
 
