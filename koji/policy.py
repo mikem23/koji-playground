@@ -18,6 +18,8 @@
 #       Mike McLean <mikem@redhat.com>
 
 import fnmatch
+import logging
+
 import koji
 
 
@@ -180,6 +182,7 @@ class SimpleRuleSet(object):
         self.rules = self.parse_rules(rules)
         self.lastrule = None
         self.lastaction = None
+        self.logger = logging.getLogger('koji.policy')
 
     def parse_rules(self, lines):
         """Parse rules into a ruleset data structure
@@ -297,7 +300,9 @@ class SimpleRuleSet(object):
                 self.lastrule = []
             value = False
             for test in tests:
-                if not test.run(data):
+                check = test.run(data)
+                self.logger.debug("%s -> %s", test, check)
+                if not check:
                     break
             else:
                 #all tests in current rule passed
@@ -305,6 +310,7 @@ class SimpleRuleSet(object):
             if negate:
                 value = not value
             if value:
+                self.logger.debug("rule matched")
                 self.lastrule.append([tests, negate])
                 if isinstance(action, list):
                     # action is a list of subrules
