@@ -325,8 +325,10 @@ class SimpleRuleSet(object):
         return None
 
     def apply(self, data):
+        self.logger.debug("policy start")
         self.lastrule = []
         self.lastaction = self._apply(self.ruleset, data, top=True)
+        self.logger.debug("policy done")
         return self.lastaction
 
     def last_rule(self):
