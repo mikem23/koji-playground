@@ -5248,6 +5248,7 @@ def _new_build_from_rpm(rpminfo):
     # create the build entry
     build_id = new_build(buildinfo)
     buildinfo = get_build(build_id, strict=True)
+    return buildinfo
 
 
 def cg_import(metadata, directory):
