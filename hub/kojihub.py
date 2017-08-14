@@ -8193,6 +8193,8 @@ class HasTagTest(koji.policy.BaseSimpleTest):
     """Check to see if build (currently) has a given tag"""
     name = 'hastag'
     def run(self, data):
+        if 'build' not in data:
+            return False
         tags = list_tags(build=data['build'])
         #True if any of these tags match any of the patterns
         args = self.str.split()[1:]
