@@ -5155,7 +5155,13 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
         raise koji.GenericError("bad filename: %s (expected %s)" % (basename, expected))
 
     if buildinfo is None:
+        if wrapper or fileinfo is not None:
+            # the wrapper and cg pathways should provide the build
+            raise koji.GenericError("buildinfo missing")
         buildinfo = _get_build_from_rpm(rpminfo)
+        if not buildinfo:
+            # should only return None for srpms
+            buildinfo = _new_build_from_rpm(rpminfo)
     elif not wrapper:
         # only enforce the srpm name matching the build for non-wrapper rpms
         srpmname = "%(name)s-%(version)s-%(release)s.src.rpm" % buildinfo
@@ -5209,8 +5215,6 @@ def _get_build_from_rpm(rpminfo):
     """Figure out build from the rpminfo"""
     if rpminfo['sourcepackage'] == 1:
         buildinfo = get_build(rpminfo, strict=False)
-        if not buildinfo:
-            buildinfo = _new_build_from_rpm(rpminfo)
     else:
         #figure it out from sourcerpm string
         buildinfo = get_build(koji.parse_NVRA(rpminfo['sourcerpm']))
@@ -5227,9 +5231,22 @@ def _get_build_from_rpm(rpminfo):
 
 def _new_build_from_rpm(rpminfo):
     """Deal with creating a new build for single rpm imports"""
-    # create a new build
-    build_id = new_build(rpminfo)
-    # we add the rpm build type below
+    buildinfo = dslice(rpminfo, ['name', 'version', 'release', 'epoch'])
+    # sort out volume
+    policy_data = {
+        'prebuild': buildinfo,
+        'package': buildinfo['name'],
+        'buildroots': [],
+        'cg_import': False,
+        'rpm_import': True,
+        }
+    vol = check_volume_policy(policy_data, strict=False)
+    if vol:
+        buildinfo['volume_id'] = vol['id']
+        buildinfo['volume_name'] = vol['name']
+
+    # create the build entry
+    build_id = new_build(buildinfo)
     buildinfo = get_build(build_id, strict=True)
 
 
