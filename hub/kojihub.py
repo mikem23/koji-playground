@@ -5659,12 +5659,12 @@ class CG_Importer(object):
             br_id = fileinfo.get('buildroot_id')
             if br_id is None:
                 assert fileinfo['type'] == 'log'
-                continue
-            brinfo = self.brmap.get(fileinfo['buildroot_id'])
-            if not brinfo:
-                # should not happen
-                logger.error("No buildroot mapping for file: %r", fileinfo)
-                raise koji.GenericError("Unable to map buildroot %(buildroot_id)s" % fileinfo)
+            else:
+                brinfo = self.brmap.get(fileinfo['buildroot_id'])
+                if not brinfo:
+                    # should not happen
+                    logger.error("No buildroot mapping for file: %r", fileinfo)
+                    raise koji.GenericError("Unable to map buildroot %(buildroot_id)s" % fileinfo)
             if fileinfo['type'] == 'rpm':
                 self.import_rpm(self.buildinfo, brinfo, fileinfo)
             elif fileinfo['type'] == 'log':
