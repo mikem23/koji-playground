@@ -25,7 +25,6 @@
 import base64
 import calendar
 import cgi
-import copy
 import koji
 import koji.auth
 import koji.db
@@ -53,7 +52,6 @@ import tarfile
 import tempfile
 import traceback
 import time
-import types
 import xmlrpclib
 import zipfile
 
@@ -4833,7 +4831,7 @@ def apply_volume_policy(build, strict=False):
     volume we be retained (or DEFAULT will be used if the build has no volume)
     """
     policy_data = {'build': build}
-    volume = check_volume_policy(build, strict=strict)
+    volume = check_volume_policy(policy_data, strict=strict)
     if volume is None:
         # just leave the build where it is
         return
@@ -5035,7 +5033,7 @@ class RPMBuildImporter(object):
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=None, logs=self.logs)
         # let cg code do the import
-        cg_import(self.metadata, '')
+        binfo = cg_import(self.metadata, '')
         koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=binfo, logs=self.logs)
@@ -5081,8 +5079,6 @@ class RPMBuildImporter(object):
             if not key:
                 key = None
             for relpath in files:
-                fn = "%s/%s" % (self.uploadpath, relpath)
-                import_build_log(fn, binfo, subdir=key)
                 fileinfo = {
                         'type': 'log',
                         'filename': os.path.basename(relpath),
@@ -5397,7 +5393,7 @@ class CG_Importer(object):
         # For now, we only support the internal workflow of BUILDING->COMPLETE
         if old['state'] != koji.BUILD_STATES['BUILDING']:
             raise koji.GenericError("Unable to complete build: state is %s" \
-                    % koji.BUILD_STATES[binfo['state']])
+                    % koji.BUILD_STATES[old['state']])
         for key in ('name', 'version', 'release', 'epoch', 'task_id', 'source'):
             if old[key] != new[key]:
                 raise koji.GenericError(
@@ -5406,7 +5402,8 @@ class CG_Importer(object):
         if 'koji_build_id' in new:
             if new['koji_build_id'] != old['build_id']:
                 raise koji.GenericError("Unable to complete build: build id "
-                        "mismatch (current: %s, new: %s)")
+                        "mismatch (current: %s, new: %s)"
+                        % (old['build_id'], new['koji_build_id']))
 
     def get_build(self):
         if 'build_id' in self.buildinfo:
