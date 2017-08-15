@@ -5058,7 +5058,7 @@ class RPMBuildImporter(object):
         self.metadata['build'] = bdata
 
     def get_buildroot_data(self):
-        brdata = dict([(n, n) for n in self.brmap.values()])
+        brdata = [dict.fromkeys(['id', 'koji_buildroot_id'], n) for n in self.brmap.values()]
         self.metadata['buildroots'] = brdata
 
     def get_build_output(self):
