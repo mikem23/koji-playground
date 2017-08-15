@@ -5452,7 +5452,7 @@ class CG_Importer(object):
     def update_build(self):
         new = self.buildinfo
         st_complete = koji.BUILD_STATES['COMPLETE']
-        update = UpdateProcessor('build', clauses=['id=%(build_id)s'],
+        update = UpdateProcessor('build', clauses=['id=%(id)s'],
             values=vars(self))
         update.set(state=st_complete)
         if 'volume_id' in new:
