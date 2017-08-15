@@ -5656,6 +5656,10 @@ class CG_Importer(object):
 
     def import_outputs(self):
         for fileinfo in self.prepped_outputs:
+            br_id = fileinfo.get('buildroot_id')
+            if br_id is None:
+                assert fileinfo['type'] == 'log'
+                continue
             brinfo = self.brmap.get(fileinfo['buildroot_id'])
             if not brinfo:
                 # should not happen
