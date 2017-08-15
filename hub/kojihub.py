@@ -5412,10 +5412,11 @@ class CG_Importer(object):
         if 'build_id' in self.buildinfo:
             if not self._internal:
                 raise koji.GenericError("Unexpected build id")
-            buildinfo = self.update_build()
+            self.update_build()
+            build_id = self.buildinfo['build_id']
         else:
             build_id = new_build(self.buildinfo)
-            buildinfo = get_build(build_id, strict=True)
+        buildinfo = get_build(build_id, strict=True)
 
         # handle special build types
         for btype in self.typeinfo:
@@ -5448,8 +5449,6 @@ class CG_Importer(object):
         if 'volume_id' in new:
             update.set(volume_id=new['volume_id'])
         update.rawset(completion_time='NOW()')
-
-
 
     def import_metadata(self):
         """Import the raw metadata"""
