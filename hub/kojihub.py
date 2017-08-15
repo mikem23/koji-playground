@@ -5033,7 +5033,9 @@ class RPMBuildImporter(object):
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=None, logs=self.logs)
         # let cg code do the import
-        binfo = cg_import(self.metadata, '')
+        importer = CG_Importer()
+        importer._internal = True
+        binfo = importer.do_import(self.metadata, '')
         koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=binfo, logs=self.logs)
