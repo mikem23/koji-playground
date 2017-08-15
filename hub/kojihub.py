@@ -25,7 +25,6 @@
 import base64
 import calendar
 import cgi
-import copy
 import koji
 import koji.auth
 import koji.db
@@ -53,7 +52,6 @@ import tarfile
 import tempfile
 import traceback
 import time
-import types
 import xmlrpclib
 import zipfile
 
@@ -4833,7 +4831,7 @@ def apply_volume_policy(build, strict=False):
     volume we be retained (or DEFAULT will be used if the build has no volume)
     """
     policy_data = {'build': build}
-    volume = check_volume_policy(build, strict=strict)
+    volume = check_volume_policy(policy_data, strict=strict)
     if volume is None:
         # just leave the build where it is
         return
@@ -5017,123 +5015,80 @@ class RPMBuildImporter(object):
         self.build_id = build_id
         self.logs =logs
         self.uploadpath = koji.pathinfo.work()
-        self.buildinfo = None
+        self.metadata = {
+                'metadata_version': 0,
+                'build': {},
+                'buildroots': [],
+                'output': [],
+                }
 
     def do_import(self):
+        # generate cg-compatible metadata
+        self.metadata['metadata_version'] = 0
+        self.get_build_data()
+        self.get_buildroot_data()
+        self.get_build_output()
+        self.get_log_output()
         koji.plugin.run_callbacks('preImport', type='build', srpm=self.srpm,
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=None, logs=self.logs)
-
-        self.check_files()
-        self.rpms = check_noarch_rpms(self.uploadpath, self.rpms)
-        self.check_buildroots()
-        self.prep_build()
-        self.set_volume()
-        binfo = self.get_build()
-        self.import_rpms()
-        self.import_logs()
-
+        # let cg code do the import
+        importer = CG_Importer()
+        importer._internal = True
+        binfo = importer.do_import(self.metadata, '')
         koji.plugin.run_callbacks('postImport', type='build', srpm=self.srpm,
                 rpms=self.rpms, brmap=self.brmap, task_id=self.task_id,
                 build_id=self.build_id, build=binfo, logs=self.logs)
         return binfo
 
-    def check_files(self):
-        """verify files exist"""
-        for relpath in [self.srpm] + self.rpms:
-            fn = "%s/%s" % (self.uploadpath, relpath)
-            if not os.path.exists(fn):
-                raise koji.GenericError("no such file: %s" % fn)
-
-    def check_buildroots(self):
-        """verify buildroot ids from brmap"""
-        found = {}
-        for br_id in self.brmap.values():
-            if br_id in found:
-                continue
-            #this will raise an exception if the buildroot id is invalid
-            BuildRoot(br_id)
-            found[br_id] = 1
-
-    def prep_build(self):
+    def get_build_data(self):
+        tinfo = Task(self.task_id).getInfo()
         fn = "%s/%s" % (self.uploadpath, self.srpm)
         fields = ('name', 'version', 'release', 'epoch', 'sourcepackage')
         bdata = koji.get_header_fields(fn, fields)
         if bdata['sourcepackage'] != 1:
             raise koji.GenericError("not a source package: %s" % fn)
         bdata['task_id'] = self.task_id
-        self.buildinfo = bdata
+        bdata['extra'] = {}
+        bdata['source'] = None
+        bdata['start_time'] = tinfo['start_ts']  # XXX
+        bdata['end_time'] = time.time()
         if self.build_id is not None:
-            self.check_existing_build()
+            bdata['koji_build_id'] = self.build_id
+        self.metadata['build'] = bdata
 
-    def check_existing_build(self):
-        # build_id was passed in - sanity check
-        binfo = get_build(self.build_id, strict=True)
-        for key in ('name', 'version', 'release', 'epoch', 'task_id'):
-            if self.buildinfo[key] != binfo[key]:
-                raise koji.GenericError(
-                        "Unable to complete build: %s mismatch (build: %s, "
-                        "rpm: %s)" % (key, binfo[key], build[key]))
-        if binfo['state'] != koji.BUILD_STATES['BUILDING']:
-            raise koji.GenericError("Unable to complete build: state is %s" \
-                    % koji.BUILD_STATES[binfo['state']])
-        self.buildinfo = binfo
+    def get_buildroot_data(self):
+        brdata = dict([(n, n) for n in self.brmap.values()])
+        self.metadata['buildroots'] = brdata
 
-    def set_volume(self):
-        """Use policy to determine what the volume should be"""
-        # we have to be careful and provide sufficient data
-        policy_data = {
-                'prebuild': self.buildinfo,
-                'package': self.buildinfo['name'],
-                #'source': self.buildinfo['source'],
-                'buildroots': self.brmap.values(),
-                'volume': 'DEFAULT',  # ??
-                'cg_import': False,
-                }
-        vol = check_volume_policy(policy_data, strict=False)
-        if vol:
-            self.buildinfo['volume_id'] = vol['id']
-            self.buildinfo['volume_name'] = vol['name']
-
-    def get_build(self):
-        if self.build_id is None:
-            self.build_id = new_build(self.buildinfo)
-            binfo = get_build(self.build_id, strict=True)
-            new_typed_build(binfo, 'rpm')
-        else:
-            # normal case for completeBuild -- existing entry in BUILDING state
-            binfo = self.buildinfo
-            st_complete = koji.BUILD_STATES['COMPLETE']
-            update = UpdateProcessor('build', clauses=['id=%(build_id)s'],
-                        values=vars(self))
-            update.set(state=st_complete)
-            update.set(volume_id=binfo['volume_id'])
-            update.rawset(completion_time='NOW()')
-            koji.plugin.run_callbacks('preBuildStateChange', attribute='state',
-                    old=binfo['state'], new=st_complete, info=binfo)
-            update.execute()
-            koji.plugin.run_callbacks('postBuildStateChange', attribute='state',
-                    old=binfo['state'], new=st_complete, info=binfo)
-        return binfo
-
-    def import_rpms(self):
-        """Import the individual rpms"""
-        binfo = self.buildinfo
+    def get_build_output(self):
+        output = self.metadata['output']
         for relpath in [self.srpm] + self.rpms:
-            fn = "%s/%s" % (self.uploadpath, relpath)
-            rpminfo = import_rpm(fn, binfo, self.brmap.get(relpath))
-            import_rpm_file(fn, binfo, rpminfo)
-            add_rpm_sig(rpminfo['id'], koji.rip_rpm_sighdr(fn))
+            fileinfo = {
+                    'buildroot_id': self.brmap.get(relpath),
+                    'type': 'rpm',
+                    'filename': os.path.basename(relpath),
+                    'relpath': os.path.dirname(relpath),
+                    # TODO: more fields
+                    }
+            output.append(fileinfo)
 
-    def import_logs(self):
-        binfo = self.buildinfo
-        if self.logs:
-            for key, files in self.logs.iteritems():
-                if not key:
-                    key = None
-                for relpath in files:
-                    fn = "%s/%s" % (self.uploadpath, relpath)
-                    import_build_log(fn, binfo, subdir=key)
+    def get_log_output(self):
+        if not self.logs:
+            return
+        output = self.metadata['output']
+        for key, files in self.logs.iteritems():
+            if not key:
+                key = None
+            for relpath in files:
+                fileinfo = {
+                        'type': 'log',
+                        'filename': os.path.basename(relpath),
+                        'relpath': os.path.dirname(relpath),
+                        'logdir': key,
+                        # TODO: more fields
+                        }
+                output.append(fileinfo)
 
 
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
@@ -5440,12 +5395,17 @@ class CG_Importer(object):
         # For now, we only support the internal workflow of BUILDING->COMPLETE
         if old['state'] != koji.BUILD_STATES['BUILDING']:
             raise koji.GenericError("Unable to complete build: state is %s" \
-                    % koji.BUILD_STATES[binfo['state']])
+                    % koji.BUILD_STATES[old['state']])
         for key in ('name', 'version', 'release', 'epoch', 'task_id', 'source'):
             if old[key] != new[key]:
                 raise koji.GenericError(
                         "Unable to complete build: %s mismatch (current: %s, "
                         "new: %s)" % (key, old[key], new[key]))
+        if 'koji_build_id' in new:
+            if new['koji_build_id'] != old['build_id']:
+                raise koji.GenericError("Unable to complete build: build id "
+                        "mismatch (current: %s, new: %s)"
+                        % (old['build_id'], new['koji_build_id']))
 
     def get_build(self):
         if 'build_id' in self.buildinfo:
@@ -5761,7 +5721,8 @@ class CG_Importer(object):
             return
         # TODO: determine subdir
         fn = fileinfo['hub.path']
-        import_build_log(fn, buildinfo, subdir=None)
+        subdir = fileinfo.get('logdir')
+        import_build_log(fn, buildinfo, subdir=subdir)
 
 
     def import_archive(self, buildinfo, brinfo, fileinfo):
