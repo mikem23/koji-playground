@@ -5397,7 +5397,7 @@ class CG_Importer(object):
         """Sanity check an existing build"""
         if not self._internal:
             raise koji.GenericError("Build already exists: %r" % buildinfo)
-        logger.debug("Attempting to update existing build")
+        logger.debug("Checking existing build entry")
         # TODO : also allow CGs to reuse in some cases
         old = buildinfo
         new = self.metadata['build']
@@ -5458,6 +5458,7 @@ class CG_Importer(object):
         if 'volume_id' in new:
             update.set(volume_id=new['volume_id'])
         update.rawset(completion_time='NOW()')
+        update.execute()
 
     def import_metadata(self):
         """Import the raw metadata"""
