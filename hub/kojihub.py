@@ -5412,11 +5412,11 @@ class CG_Importer(object):
 
     def get_build(self):
         logger.debug("Creating/updating build entry")
-        if 'build_id' in self.buildinfo:
+        if 'id' in self.buildinfo:
             if not self._internal:
                 raise koji.GenericError("Unexpected build id")
             self.update_build()
-            build_id = self.buildinfo['build_id']
+            build_id = self.buildinfo['id']
         else:
             build_id = new_build(self.buildinfo)
         buildinfo = get_build(build_id, strict=True)
