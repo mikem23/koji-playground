@@ -5019,7 +5019,7 @@ class RPMBuildImporter(object):
                 'metadata_version': 0,
                 'build': {},
                 'buildroots': [],
-                'outputs': [],
+                'output': [],
                 }
 
     def do_import(self):
@@ -5062,7 +5062,7 @@ class RPMBuildImporter(object):
         self.metadata['buildroots'] = brdata
 
     def get_build_output(self):
-        outputs = self.metadata['outputs']
+        output = self.metadata['output']
         for relpath in [self.srpm] + self.rpms:
             fileinfo = {
                     'buildroot_id': self.brmap.get(relpath),
@@ -5071,12 +5071,12 @@ class RPMBuildImporter(object):
                     'relpath': os.path.dirname(relpath),
                     # TODO: more fields
                     }
-            outputs.append(fileinfo)
+            output.append(fileinfo)
 
     def get_log_output(self):
         if not self.logs:
             return
-        outputs = self.metadata['outputs']
+        output = self.metadata['output']
         for key, files in self.logs.iteritems():
             if not key:
                 key = None
@@ -5088,7 +5088,7 @@ class RPMBuildImporter(object):
                         'logdir': key,
                         # TODO: more fields
                         }
-                outputs.append(fileinfo)
+                output.append(fileinfo)
 
 
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
