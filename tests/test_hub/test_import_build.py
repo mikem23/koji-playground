@@ -177,7 +177,7 @@ class TestImportBuild(unittest.TestCase):
                 side_effect=self.get_query).start()
         self.importer = mock.MagicMock()
         self.CG_Importer = mock.patch('kojihub.CG_Importer',
-                new=self.importer).start()
+                return_value=self.importer).start()
         self.Task_getInfo = mock.MagicMock()
         self.Task = mock.patch('kojihub.Task', new=self.Task_getInfo).start()
         self.get_header_fields = mock.patch('koji.get_header_fields').start()
@@ -215,6 +215,27 @@ class TestImportBuild(unittest.TestCase):
             'sigmd5': 'sigmd5',
         }
 
-    def test_import_build_completed_build(self):
+    def test_import_build_simple(self):
+        # just an srpm
+        kojihub.import_build(self.src_filename, [])
 
-        kojihub.import_build(self.src_filename, [self.filename])
+    def test_import_build_not_srpm(self):
+        self.get_header_fields.return_value['sourcepackage'] = 0
+        with self.assertRaises(koji.GenericError):
+            kojihub.import_build(self.src_filename, [self.filename])
+
+    def test_import_build_completed(self):
+        srpm = self.src_filename
+        rpms = ['foo-1.1.noarch.rpm', 'foo-bar-1.1.noarch.rpm']
+        brmap = dict.fromkeys(rpms + [srpm], 1001)
+        task_id = 42
+        build_id = 37
+        logs = {'noarch': ['build.log']}
+        kojihub.import_build(srpm, rpms, brmap, task_id, build_id, logs)
+
+        self.CG_Importer.assert_called_once()
+        self.importer.do_import.assert_called_once()
+        metadata = self.importer.do_import.call_args[0][0]
+        # print('')
+        # import pprint; pprint.pprint(metadata)
+        # TODO add assertions on metadata
