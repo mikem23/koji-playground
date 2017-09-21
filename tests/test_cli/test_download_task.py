@@ -33,13 +33,15 @@ class TestDownloadTask(unittest.TestCase):
             url = pattern % (subpath, k)
             if target.endswith('.log') and arch is not None:
                 target = "%s.%s.log" % (target.rstrip(".log"), arch)
-            calls.append(call(url, target, None, None, total, i + 1))
+            calls.append(call(url, target, None, None, total, i + 1,
+                              no_ssl_verify=self.options.no_ssl_verify))
         return calls
 
     def setUp(self):
         # Mock out the options parsed in main
         self.options = mock.MagicMock()
         self.options.quiet = None
+        self.options.no_ssl_verify = False
         self.options.topurl = 'https://topurl'
         # Mock out the xmlrpc server
         self.session = mock.MagicMock()
@@ -133,11 +135,14 @@ class TestDownloadTask(unittest.TestCase):
             call(self.session, 44444)])
         self.assertListEqual(self.download_file.mock_calls, [
             call('https://topurl/work/tasks/3333/33333/somerpm.x86_64.rpm',
-                 'somerpm.x86_64.rpm', None, None, 3, 1),
+                 'somerpm.x86_64.rpm', None, None, 3, 1,
+                 no_ssl_verify=self.options.no_ssl_verify),
             call('https://topurl/vol/vol2/work/tasks/3333/33333/somerpm.x86_64.rpm',
-                 'vol2/somerpm.x86_64.rpm', None, None, 3, 2),
+                 'vol2/somerpm.x86_64.rpm', None, None, 3, 2,
+                 no_ssl_verify=self.options.no_ssl_verify),
             call('https://topurl/vol/vol3/work/tasks/4444/44444/somerpm.noarch.rpm',
-                 'vol3/somerpm.noarch.rpm', None, None, 3, 3)])
+                 'vol3/somerpm.noarch.rpm', None, None, 3, 3,
+                 no_ssl_verify=self.options.no_ssl_verify)])
         self.assertIsNone(rv)
 
     def test_handle_download_task_log(self):
