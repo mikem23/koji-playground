@@ -471,7 +471,7 @@ def linked_upload(localfile, path, name=None):
         os.umask(old_umask)
 
 
-def download_file(url, relpath, quiet=False, noprogress=False, size=None, num=None):
+def download_file(url, relpath, quiet=False, noprogress=False, size=None, num=None, no_ssl_verify=False):
     """Download files from remote"""
 
     if '/' in relpath:
@@ -486,6 +486,9 @@ def download_file(url, relpath, quiet=False, noprogress=False, size=None, num=No
     # allow 301/302 redirect
     c.setopt(pycurl.FOLLOWLOCATION, 1)
     c.setopt(c.WRITEDATA, open(relpath, 'wb'))
+    if no_ssl_verify:
+        c.setopt(pycurl.SSL_VERIFYHOST, 0)
+        c.setopt(pycurl.SSL_VERIFYPEER, 0)
     if not (quiet or noprogress):
         proc_func_param = getattr(c, 'XFERINFOFUNCTION', None)
         if proc_func_param is None:
