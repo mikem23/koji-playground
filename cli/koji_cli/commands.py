@@ -6595,9 +6595,11 @@ def anon_handle_download_build(options, session, args):
             url = pathinfo.build(info) + '/' + fname
             urls.append((url, os.path.basename(fname)))
 
+    serverca = options.downloadca or options.serverca
     for url, relpath in urls:
         download_file(url, relpath, suboptions.quiet, suboptions.noprogress,
-                      no_ssl_verify=options.no_ssl_verify)
+                      no_ssl_verify=options.no_ssl_verify,
+                      serverca=serverca)
 
 
 def anon_handle_download_logs(options, session, args):
@@ -6803,8 +6805,10 @@ def anon_handle_download_task(options, session, args):
         if '..' in filename:
             error(_('Invalid file name: %s') % filename)
         url = '%s/%s/%s' % (pathinfo.work(volume), pathinfo.taskrelpath(task["id"]), filename)
+        serverca = options.downloadca or options.serverca
         download_file(url, new_filename, suboptions.quiet, suboptions.noprogress,
-                      len(downloads), number, no_ssl_verify=options.no_ssl_verify)
+                      len(downloads), number, no_ssl_verify=options.no_ssl_verify,
+                      serverca=serverca)
 
 
 def anon_handle_wait_repo(options, session, args):
