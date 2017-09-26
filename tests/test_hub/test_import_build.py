@@ -344,22 +344,63 @@ class TestImportBuildCallbacks(unittest.TestCase):
         srpm = self.src_filename
         rpms = self.filenames
         brmap = dict.fromkeys(rpms + [srpm], 1001)
-        build_id = 37
+        build_id = buildinfo['id']
         kojihub.import_build(srpm, rpms, brmap, taskinfo['id'], build_id, self.logs)
 
         # callback assertions
         cbtypes = [c[0] for c in self.callbacks]
-        self.assertEqual(cbtypes, ['preImport', 'preBuildStateChange', 'postBuildStateChange', 'postImport'])
+        cb_expect = [
+            'preImport',  # main import
+            'preBuildStateChange',  # building -> completed
+            'postBuildStateChange',
+            'preImport',    # rpm 1...
+            'postImport',
+            'preRPMSign',
+            'postRPMSign',
+            'preImport',    # rpm 2...
+            'postImport',
+            'preRPMSign',
+            'postRPMSign',
+            'preImport',    # rpm 3...
+            'postImport',
+            'preRPMSign',
+            'postRPMSign',
+            'postImport',   # finish main import
+            ]
+        self.assertEqual(cbtypes, cb_expect)
+
+        cb_idx = {}
         for c in self.callbacks:
             # no callbacks should use *args
             self.assertEqual(c[1], ())
-        cb_idx = dict([(c[0], c[2]) for c in self.callbacks])
+            cbtype = c[0]
+            if 'type' in c[2]:
+                key = "%s:%s" % (cbtype, c[2]['type'])
+            else:
+                key = cbtype
+            cb_idx.setdefault(key, [])
+            cb_idx[key].append(c[2])
+        key_expect = ['preBuildStateChange', 'postBuildStateChange',
+                'preImport:build', 'postImport:build','preImport:rpm',
+                'postImport:rpm', 'preRPMSign', 'postRPMSign']
+        self.assertEqual(set(cb_idx.keys()), set(key_expect))
         # in this case, pre and post data is similar
-        for cbtype in ['preImport', 'postImport']:
-            cbargs = cb_idx[cbtype]
+        for key in ['preImport:build', 'postImport:build']:
+            callbacks = cb_idx[key]
+            self.assertEqual(len(callbacks), 1)
+            cbargs = cb_idx[key][0]
             keys = sorted(cbargs.keys())
             self.assertEqual(keys, ['brmap', 'build', 'build_id', 'logs',
                     'rpms', 'srpm', 'task_id', 'type'])
             self.assertEqual(cbargs['type'], 'build')
-            self.assertEqual(cbargs['srpm'], self.src_filename)
-            self.assertEqual(cbargs['rpms'], [self.filename])
+            self.assertEqual(cbargs['srpm'], srpm)
+            self.assertEqual(cbargs['rpms'], rpms)
+        for key in ['preImport:rpm', 'postImport:rpm']:
+            callbacks = cb_idx[key]
+            self.assertEqual(len(callbacks), 3)
+            for cbargs in callbacks:
+                keys = set(cbargs.keys())
+                k_expect = set(['build', 'fileinfo', 'filepath', 'rpm', 'type'])
+                self.assertEqual(cbargs['type'], 'rpm')
+                self.assertEqual(cbargs['build'], buildinfo)
+                self.assertEqual(keys, k_expect)
