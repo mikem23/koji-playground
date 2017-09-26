@@ -1,5 +1,6 @@
 import copy
 import mock
+import os.path
 import shutil
 import tempfile
 import unittest
@@ -239,3 +240,126 @@ class TestImportBuild(unittest.TestCase):
         # print('')
         # import pprint; pprint.pprint(metadata)
         # TODO add assertions on metadata
+
+
+orig_import_rpm = kojihub.import_rpm
+orig_get_rpm = kojihub.get_rpm
+orig_add_rpm_sig = kojihub.add_rpm_sig
+
+
+class TestImportBuildCallbacks(unittest.TestCase):
+
+    def setUp(self):
+        # There is a lot of setup here because we're letting the code
+        # run deep, rather than mocking at some of the easier places.
+        # Otherwise, we will miss callbacks
+        self.tempdir = tempfile.mkdtemp()
+        self.queries = []
+        self.QueryProcessor = mock.patch('kojihub.QueryProcessor',
+                side_effect=self.get_query).start()
+        self.Task = mock.patch('kojihub.Task').start()
+        self.get_build = mock.patch('kojihub.get_build').start()
+        self.asset_policy = mock.patch('kojihub.assert_policy').start()
+        self.UpdateProcessor = mock.patch('kojihub.UpdateProcessor').start()
+        mock.patch('kojihub.new_typed_build').start()
+        mock.patch('kojihub._singleValue').start()
+        mock.patch('kojihub._dml').start()
+        mock.patch('kojihub.nextval', side_effect=range(10)).start()
+        mock.patch('kojihub.import_rpm', new=self.my_import_rpm).start()
+        mock.patch('kojihub.get_rpm', new=self.my_get_rpm).start()
+        mock.patch('kojihub.add_rpm_sig', new=self.my_add_rpm_sig).start()
+        self.rpm_idx = {}
+        self.exports = kojihub.RootExports()
+        self.set_up_files()
+        self.set_up_callbacks()
+
+    def tearDown(self):
+        mock.patch.stopall()
+        shutil.rmtree(self.tempdir)
+
+    def set_up_callbacks(self):
+        new_callbacks = copy.deepcopy(koji.plugin.callbacks)
+        mock.patch('koji.plugin.callbacks', new=new_callbacks).start()
+        self.callbacks = []
+        for cbtype in koji.plugin.callbacks.keys():
+            koji.plugin.register_callback(cbtype, self.callback)
+
+    def callback(self, cbtype, *args, **kwargs):
+        self.callbacks.append([cbtype, args, kwargs])
+
+    def get_query(self, *args, **kwargs):
+        query = QP(*args, **kwargs)
+        query.execute = mock.MagicMock()
+        self.queries.append(query)
+        return query
+
+    def my_import_rpm(self, *args, **kwargs):
+        # wrap original, but index results
+        ret = orig_import_rpm(*args, **kwargs)
+        self.rpm_idx[ret['id']] = ret
+        return ret
+
+    def my_get_rpm(self, rpminfo, **kwargs):
+        if rpminfo in self.rpm_idx:
+            return self.rpm_idx[rpminfo]
+        # otherwise
+        orig_get_rpm(rpminfo, **kwargs)
+
+    def my_add_rpm_sig(self, *args, **kwargs):
+        # we want this mock only for this call
+        with mock.patch('kojihub._fetchMulti', return_value=[]):
+            orig_add_rpm_sig(*args, **kwargs)
+
+    def set_up_files(self):
+        self.pathinfo = koji.PathInfo(self.tempdir)
+        mock.patch('koji.pathinfo', new=self.pathinfo).start()
+        rpmdir = os.path.join(os.path.dirname(__file__), 'data/rpms')
+        srpm = 'mytestpkg-1.1-10.src.rpm'
+        rpms = ['mytestpkg-1.1-10.noarch.rpm', 'mytestpkg-doc-1.1-10.noarch.rpm']
+        files = list(rpms)
+        files.append(srpm)
+        os.makedirs(self.pathinfo.work() + '/upload')
+        for fn in files:
+            src = os.path.join(rpmdir, fn)
+            dst = self.pathinfo.work() + '/upload/' + fn
+            shutil.copy(src, dst)
+        self.src_filename = "upload/%s" % srpm
+        self.filenames = ["upload/%s" % r for r in rpms]
+        # also a log
+        logname = 'upload/build.log'
+        fn = os.path.join(self.pathinfo.work(), logname)
+        with open(fn, 'w') as fp:
+            fp.write('hello world!\n')
+        self.logs = {'noarch': [logname]}
+
+    def test_import_build_callbacks_completed(self):
+        taskinfo = {'id': 42, 'start_ts': 1}
+        self.Task.return_value.getInfo.return_value = taskinfo
+        buildinfo = {'id': 37, 'name': 'mytestpkg', 'version': '1.1',
+                'epoch': 7, 'release': '10',
+                'state': koji.BUILD_STATES['BUILDING'],
+                'task_id': taskinfo['id'], 'source': None}
+        buildinfo['build_id'] = buildinfo['id']
+        self.get_build.return_value = buildinfo
+        srpm = self.src_filename
+        rpms = self.filenames
+        brmap = dict.fromkeys(rpms + [srpm], 1001)
+        build_id = 37
+        kojihub.import_build(srpm, rpms, brmap, taskinfo['id'], build_id, self.logs)
+
+        # callback assertions
+        cbtypes = [c[0] for c in self.callbacks]
+        self.assertEqual(cbtypes, ['preImport', 'preBuildStateChange', 'postBuildStateChange', 'postImport'])
+        for c in self.callbacks:
+            # no callbacks should use *args
+            self.assertEqual(c[1], ())
+        cb_idx = dict([(c[0], c[2]) for c in self.callbacks])
+        # in this case, pre and post data is similar
+        for cbtype in ['preImport', 'postImport']:
+            cbargs = cb_idx[cbtype]
+            keys = sorted(cbargs.keys())
+            self.assertEqual(keys, ['brmap', 'build', 'build_id', 'logs',
+                    'rpms', 'srpm', 'task_id', 'type'])
+            self.assertEqual(cbargs['type'], 'build')
+            self.assertEqual(cbargs['srpm'], self.src_filename)
+            self.assertEqual(cbargs['rpms'], [self.filename])
