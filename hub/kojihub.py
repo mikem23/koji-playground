@@ -5256,8 +5256,9 @@ class CG_Importer(object):
         self.assert_policy()
         self.set_volume()
 
-        koji.plugin.run_callbacks('preImport', type='cg', metadata=metadata,
-                directory=directory)
+        if not self._internal:
+            koji.plugin.run_callbacks('preImport', type='cg', metadata=metadata,
+                    directory=directory)
 
         # finalize import
         self.get_build()
@@ -5265,8 +5266,9 @@ class CG_Importer(object):
         self.import_outputs()
         self.import_metadata()
 
-        koji.plugin.run_callbacks('postImport', type='cg', metadata=metadata,
-                                  directory=directory, build=self.buildinfo)
+        if not self._internal:
+            koji.plugin.run_callbacks('postImport', type='cg', metadata=metadata,
+                                      directory=directory, build=self.buildinfo)
 
         return self.buildinfo
 
