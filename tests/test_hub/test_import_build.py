@@ -251,7 +251,8 @@ class TestImportBuildCallbacks(unittest.TestCase):
 
     def setUp(self):
         # There is a lot of setup here because we're letting the code
-        # run deep, rather than mocking at some of the easier places
+        # run deep, rather than mocking at some of the easier places.
+        # Otherwise, we will miss callbacks
         self.tempdir = tempfile.mkdtemp()
         self.queries = []
         self.QueryProcessor = mock.patch('kojihub.QueryProcessor',
