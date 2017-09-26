@@ -5451,14 +5451,16 @@ class CG_Importer(object):
         return buildinfo
 
     def update_build(self):
-        new = self.buildinfo
+        binfo = self.buildinfo
         st_complete = koji.BUILD_STATES['COMPLETE']
-        update = UpdateProcessor('build', clauses=['id=%(id)s'], values=new)
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
+        update = UpdateProcessor('build', clauses=['id=%(id)s'], values=binfo)
         update.set(state=st_complete)
-        if 'volume_id' in new:
-            update.set(volume_id=new['volume_id'])
+        if 'volume_id' in binfo:
+            update.set(volume_id=binfo['volume_id'])
         update.rawset(completion_time='NOW()')
         update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=binfo['state'], new=st_complete, info=binfo)
 
     def import_metadata(self):
         """Import the raw metadata"""
