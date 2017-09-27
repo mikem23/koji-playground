@@ -38,7 +38,8 @@ class TestCompleteMavenBuild(unittest.TestCase):
         mock.patch('kojihub._fetchSingle').start()
         mock.patch('kojihub.build_notification').start()
         mock.patch('kojihub.assert_policy').start()
-        mock.patch('kojihub.check_volume_policy').start()
+        mock.patch('kojihub.check_volume_policy',
+                return_value={'id':0, 'name': 'DEFAULT'}).start()
         self.set_up_callbacks()
 
     def tearDown(self):
