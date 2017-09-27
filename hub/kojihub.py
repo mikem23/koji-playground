@@ -12024,7 +12024,6 @@ class HostExports(object):
         update.execute()
         koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
 
-        apply_volume_policy(build_info, strict=False)
         # send email
         build_notification(task_id, build_id)
 
