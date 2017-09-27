@@ -1,0 +1,8 @@
+2017-09-27 00:32:13,472 - Mock Version: 1.1.16
+2017-09-27 00:32:13,484 - State Changed: running yum
+2017-09-27 00:35:26,429 - State Changed: unlock buildroot
+2017-09-27 00:35:26,430 - State Changed: end
+2017-09-27 00:35:32,460 - Mock Version: 1.1.16
+2017-09-27 00:35:32,505 - State Changed: chroot
+2017-09-27 00:35:43,018 - State Changed: unlock buildroot
+2017-09-27 00:35:43,019 - State Changed: end
