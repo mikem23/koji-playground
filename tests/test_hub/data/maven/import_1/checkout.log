@@ -1,0 +1,4 @@
+$ git clone -n git://git.engineering.redhat.com/users/mikem/maven-hello-world.git /mnt/build/mock/jb-eap-7.0-rhel-7-maven-build-3492408-2186220/root/maven/build/maven-hello-world
+Initialized empty Git repository in /mnt/build/mock/jb-eap-7.0-rhel-7-maven-build-3492408-2186220/root/maven/build/maven-hello-world/.git/
+$ git reset --hard 4603b64d11ba0dc497892706628f19561f28554a
+HEAD is now at 4603b64 ...
