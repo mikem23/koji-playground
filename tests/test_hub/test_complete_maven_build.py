@@ -1,3 +1,4 @@
+import copy
 import json
 import mock
 import os
@@ -7,6 +8,7 @@ import tempfile
 import unittest
 
 import koji
+import koji.util
 import kojihub
 
 
@@ -34,6 +36,7 @@ class TestCompleteMavenBuild(unittest.TestCase):
         mock.patch('kojihub._dml').start()
         mock.patch('kojihub._fetchSingle').start()
         mock.patch('kojihub.build_notification').start()
+        self.set_up_callbacks()
 
     def tearDown(self):
         mock.patch.stopall()
@@ -57,6 +60,9 @@ class TestCompleteMavenBuild(unittest.TestCase):
             dst = os.path.join(taskdir, fn)
             shutil.copy(src, dst)
         self.maven_data = data
+        files = file(datadir + '/files').readlines()
+        files = [l.strip() for l in files]
+        self.expected_files = files
 
     def my_lookup_name(self, table, info, **kw):
         if table == 'btype':
@@ -91,5 +97,56 @@ class TestCompleteMavenBuild(unittest.TestCase):
     def test_complete_maven_build(self):
         self.set_up_files('import_1')
         buildinfo = koji.maven_info_to_nvr(self.maven_data['maven_info'])
+        buildinfo['id'] = 137
         buildinfo['release'] = 1
+        buildinfo['state'] = koji.BUILD_STATES['BUILDING']
+        maven_info = self.maven_data['maven_info'].copy()
+        maven_info['build_id'] = buildinfo['id']
+        self.get_build.return_value = buildinfo
+        self.get_maven_build.return_value = maven_info
         self.hostcalls.completeMavenBuild('TASK_ID', 'BUILD_ID', self.maven_data, None)
+        # make sure we wrote the files we expect
+        files = []
+        for dirpath, dirnames, filenames in os.walk(self.tempdir + '/packages'):
+            relpath = koji.util.relpath(dirpath, self.tempdir)
+            files.extend([os.path.join(relpath, fn) for fn in filenames])
+        self.assertEqual(files, self.expected_files)
+        # check callbacks
+        cbtypes = [c[0] for c in self.callbacks]
+        cb_expect = [
+            'preImport',    # archive 1...
+            'postImport',
+            'preImport',    # archive 2...
+            'postImport',
+            'preImport',    # archive 3...
+            'postImport',
+            'preBuildStateChange',  # building -> completed
+            'postBuildStateChange',
+            ]
+        self.assertEqual(cbtypes, cb_expect)
+
+        cb_idx = {}
+
+        cb_idx = {}
+        for c in self.callbacks:
+            # no callbacks should use *args
+            self.assertEqual(c[1], ())
+            cbtype = c[0]
+            if 'type' in c[2]:
+                key = "%s:%s" % (cbtype, c[2]['type'])
+            else:
+                key = cbtype
+            cb_idx.setdefault(key, [])
+            cb_idx[key].append(c[2])
+        key_expect = ['postBuildStateChange', 'preBuildStateChange', 'preImport:archive', 'postImport:archive']
+        self.assertEqual(set(cb_idx.keys()), set(key_expect))
+        # in this case, pre and post data is similar
+        for key in ['preImport:archive', 'postImport:archive']:
+            callbacks = cb_idx[key]
+            self.assertEqual(len(callbacks), 3)
+            for cbargs in callbacks:
+                keys = set(cbargs.keys())
+                k_expect = set(['filepath', 'build_type', 'build', 'fileinfo', 'type', 'archive'])
+                self.assertEqual(keys, k_expect)
+                self.assertEqual(cbargs['type'], 'archive')
+                self.assertEqual(cbargs['build'], buildinfo)
