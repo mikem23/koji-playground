@@ -5163,7 +5163,6 @@ class MavenBuildImporter(object):
                 m = md5_constructor()
                 chunks = iter(partial(file(filepath).read, 819200), b'')
                 [m.update(b) for b in chunks]
-                # TODO: avoid recalculating checksum later
                 fileinfo = {
                         'buildroot_id': maven_buildroot_id,
                         'type': 'file',
@@ -5887,7 +5886,11 @@ class CG_Importer(object):
         btype = fileinfo['hub.btype']
         type_info = fileinfo['hub.type_info']
 
-        archiveinfo = import_archive_internal(fn, buildinfo, btype, type_info, brinfo.id, fileinfo)
+        opts = {}
+        if self._internal:
+            opts['trust_sum'] = True
+        archiveinfo = import_archive_internal(fn, buildinfo, btype, type_info,
+                brinfo.id, fileinfo, **opts)
 
         if 'components' in fileinfo:
             self.import_components(archiveinfo['id'], fileinfo)
@@ -6408,17 +6411,21 @@ def import_archive(filepath, buildinfo, type, typeInfo, buildroot_id=None):
     return import_archive_internal(filepath, buildinfo, type, typeInfo, buildroot_id=None)
 
 
-def import_archive_internal(filepath, buildinfo, type, typeInfo, buildroot_id=None, fileinfo=None):
+def import_archive_internal(filepath, buildinfo, type, typeInfo,
+            buildroot_id=None, fileinfo=None, trust_sum=False):
     """
     Import an archive file and associate it with a build.  The archive can
     be any non-rpm filetype supported by Koji.
 
     filepath: full path to the archive file
-    buildinfo: dict of information about the build to associate the archive with (as returned by getBuild())
-    type: type of the archive being imported.  Currently supported archive types: maven, win, image
+    buildinfo: dict of information about the build to associate the archive
+               with (as returned by getBuild())
+    type: btype of the archive being imported
     typeInfo: dict of type-specific information
-    buildroot_id: the id of the buildroot the archive was built in (may be None)
+    buildroot_id: the id of the buildroot the archive was built in (may be
+                  None)
     fileinfo: content generator metadata for file (may be None)
+    trust_sum: trust the checksums provided by fileinfo
     """
 
     if fileinfo is None:
@@ -6447,16 +6454,16 @@ def import_archive_internal(filepath, buildinfo, type, typeInfo, buildroot_id=No
         filename = koji.fixEncoding(os.path.basename(filepath))
         archiveinfo['filename'] = filename
         archiveinfo['size'] = os.path.getsize(filepath)
-        archivefp = file(filepath)
-        m = md5_constructor()
-        while True:
-            contents = archivefp.read(8192)
-            if not contents:
-                break
-            m.update(contents)
-        archivefp.close()
-        archiveinfo['checksum'] = m.hexdigest()
-        archiveinfo['checksum_type'] = koji.CHECKSUM_TYPES['md5']
+        if trust_sum:
+            # if this flag is present, then we have already checked it
+            archiveinfo['checksum'] = fileinfo['checksum']
+            archiveinfo['checksum_type'] = fileinfo['checksum_type']
+        else:
+            m = md5_constructor()
+            chunks = iter(partial(file(filepath).read, 819200), b'')
+            [m.update(b) for b in chunks]
+            archiveinfo['checksum'] = m.hexdigest()
+            archiveinfo['checksum_type'] = koji.CHECKSUM_TYPES['md5']
         if fileinfo:
             # check against metadata
             if archiveinfo['size'] != fileinfo['filesize']:
