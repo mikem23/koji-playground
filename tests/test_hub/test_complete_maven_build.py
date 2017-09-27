@@ -31,11 +31,14 @@ class TestCompleteMavenBuild(unittest.TestCase):
         self.get_maven_build = mock.patch('kojihub.get_maven_build').start()
         self.get_archive_type = mock.patch('kojihub.get_archive_type').start()
         mock.patch('kojihub.lookup_name', new=self.my_lookup_name).start()
+        mock.patch.object(kojihub.BuildRoot, 'load', new=self.my_buildroot_load).start()
         mock.patch('kojihub.import_archive_internal',
                     new=self.my_import_archive_internal).start()
         mock.patch('kojihub._dml').start()
         mock.patch('kojihub._fetchSingle').start()
         mock.patch('kojihub.build_notification').start()
+        mock.patch('kojihub.assert_policy').start()
+        mock.patch('kojihub.check_volume_policy').start()
         self.set_up_callbacks()
 
     def tearDown(self):
@@ -70,6 +73,16 @@ class TestCompleteMavenBuild(unittest.TestCase):
         else:
             raise Exception("Cannot fake call")
 
+    @staticmethod
+    def my_buildroot_load(br, id):
+        # br is the BuildRoot instance
+        br.id = id
+        br.is_standard = True
+        br.data = {
+                'br_type': koji.BR_TYPES['STANDARD'],
+                'id': id,
+                }
+
     def my_import_archive_internal(self, *a, **kw):
         # this is kind of odd, but we need this to fake the archiveinfo
         share = {}
@@ -98,7 +111,9 @@ class TestCompleteMavenBuild(unittest.TestCase):
         self.set_up_files('import_1')
         buildinfo = koji.maven_info_to_nvr(self.maven_data['maven_info'])
         buildinfo['id'] = 137
-        buildinfo['release'] = 1
+        buildinfo['task_id'] = 'TASK_ID'
+        buildinfo['release'] = '1'
+        buildinfo['source'] = None
         buildinfo['state'] = koji.BUILD_STATES['BUILDING']
         maven_info = self.maven_data['maven_info'].copy()
         maven_info['build_id'] = buildinfo['id']
