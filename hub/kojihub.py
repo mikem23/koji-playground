@@ -5097,6 +5097,81 @@ class RPMBuildImporter(object):
                 output.append(fileinfo)
 
 
+class MavenBuildImporter(object):
+    """Bridge between completeMavenBuild and cg_import"""
+
+    def __init__(self, task_id, build_id, maven_results, rpm_results):
+        self.task_id = task_id
+        self.build_id = build_id
+        self.maven_results = maven_results
+        self.rpm_results = rpm_results
+
+    def do_import(self):
+        build_info = get_build(self.build_id, strict=True)
+        maven_info = get_maven_build(self.build_id, strict=True)
+
+        maven_task_id = self.maven_results['task_id']
+        maven_buildroot_id = self.maven_results['buildroot_id']
+        maven_task_dir = koji.pathinfo.task(maven_task_id)
+        # import the build output
+        for relpath, files in self.maven_results['files'].iteritems():
+            dir_maven_info = maven_info
+            poms = [f for f in files if f.endswith('.pom')]
+            if len(poms) == 0:
+                pass
+            elif len(poms) == 1:
+                # This directory has a .pom file, so get the Maven group_id,
+                # artifact_id, and version from it and associate those with
+                # the artifacts in this directory
+                pom_path = os.path.join(maven_task_dir, relpath, poms[0])
+                pom_info = koji.parse_pom(pom_path)
+                dir_maven_info = koji.pom_to_maven_info(pom_info)
+            else:
+                raise koji.BuildError('multiple .pom files in %s: %s' % (relpath, ', '.join(poms)))
+
+            for filename in files:
+                if os.path.splitext(filename)[1] in ('.md5', '.sha1'):
+                    # metadata, we'll recreate that ourselves
+                    continue
+                filepath = os.path.join(maven_task_dir, relpath, filename)
+                if filename == 'maven-metadata.xml':
+                    # We want the maven-metadata.xml to be present in the build dir
+                    # so that it's a valid Maven repo, but we don't want to track it
+                    # in the database because we regenerate it when creating tag repos.
+                    # So we special-case it here.
+                    destdir = os.path.join(koji.pathinfo.mavenbuild(build_info),
+                                           relpath)
+                    _import_archive_file(filepath, destdir)
+                    _generate_maven_metadata(destdir)
+                    continue
+                archivetype = get_archive_type(filename)
+                if not archivetype:
+                    # Unknown archive type, fail the build
+                    raise koji.BuildError('unsupported file type: %s' % filename)
+                import_archive(filepath, build_info, 'maven', dir_maven_info, maven_buildroot_id)
+
+        # move the logs to their final destination
+        for log_path in self.maven_results['logs']:
+            import_build_log(os.path.join(maven_task_dir, log_path),
+                             build_info, subdir='maven')
+
+        if self.rpm_results:
+            _import_wrapper(self.rpm_results['task_id'], build_info, self.rpm_results)
+
+        # update build state
+        st_complete = koji.BUILD_STATES['COMPLETE']
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+        update = UpdateProcessor('build', clauses=['id=%(build_id)i'],
+                                 values={'build_id': self.build_id})
+        update.set(state=st_complete)
+        update.rawset(completion_time='now()')
+        update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+
+        # send email
+        build_notification(self.task_id, self.build_id)
+
+
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
     """Import a single rpm into the database
 
@@ -11963,69 +12038,8 @@ class HostExports(object):
         task = Task(task_id)
         task.assertHost(host.id)
 
-        build_info = get_build(build_id, strict=True)
-        maven_info = get_maven_build(build_id, strict=True)
-
-        maven_task_id = maven_results['task_id']
-        maven_buildroot_id = maven_results['buildroot_id']
-        maven_task_dir = koji.pathinfo.task(maven_task_id)
-        # import the build output
-        for relpath, files in maven_results['files'].iteritems():
-            dir_maven_info = maven_info
-            poms = [f for f in files if f.endswith('.pom')]
-            if len(poms) == 0:
-                pass
-            elif len(poms) == 1:
-                # This directory has a .pom file, so get the Maven group_id,
-                # artifact_id, and version from it and associate those with
-                # the artifacts in this directory
-                pom_path = os.path.join(maven_task_dir, relpath, poms[0])
-                pom_info = koji.parse_pom(pom_path)
-                dir_maven_info = koji.pom_to_maven_info(pom_info)
-            else:
-                raise koji.BuildError('multiple .pom files in %s: %s' % (relpath, ', '.join(poms)))
-
-            for filename in files:
-                if os.path.splitext(filename)[1] in ('.md5', '.sha1'):
-                    # metadata, we'll recreate that ourselves
-                    continue
-                filepath = os.path.join(maven_task_dir, relpath, filename)
-                if filename == 'maven-metadata.xml':
-                    # We want the maven-metadata.xml to be present in the build dir
-                    # so that it's a valid Maven repo, but we don't want to track it
-                    # in the database because we regenerate it when creating tag repos.
-                    # So we special-case it here.
-                    destdir = os.path.join(koji.pathinfo.mavenbuild(build_info),
-                                           relpath)
-                    _import_archive_file(filepath, destdir)
-                    _generate_maven_metadata(destdir)
-                    continue
-                archivetype = get_archive_type(filename)
-                if not archivetype:
-                    # Unknown archive type, fail the build
-                    raise koji.BuildError('unsupported file type: %s' % filename)
-                import_archive(filepath, build_info, 'maven', dir_maven_info, maven_buildroot_id)
-
-        # move the logs to their final destination
-        for log_path in maven_results['logs']:
-            import_build_log(os.path.join(maven_task_dir, log_path),
-                             build_info, subdir='maven')
-
-        if rpm_results:
-            _import_wrapper(rpm_results['task_id'], build_info, rpm_results)
-
-        # update build state
-        st_complete = koji.BUILD_STATES['COMPLETE']
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
-        update = UpdateProcessor('build', clauses=['id=%(build_id)i'],
-                                 values={'build_id': build_id})
-        update.set(state=st_complete)
-        update.rawset(completion_time='now()')
-        update.execute()
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
-
-        # send email
-        build_notification(task_id, build_id)
+        importer = MavenBuildImporter(task_id, build_id, maven_results, rpm_results)
+        importer.do_import()
 
     def importArchive(self, filepath, buildinfo, type, typeInfo):
         """
