@@ -6621,7 +6621,7 @@ def import_archive_internal(filepath, buildinfo, type, typeInfo,
                               build_type=type, filepath=filepath, fileinfo=fileinfo)
 
     # XXX verify that the buildroot is associated with a task that's associated with the build
-    archive_id = _singleValue("SELECT nextval('archiveinfo_id_seq')", strict=True)
+    archive_id = nextval('archiveinfo_id_seq')
     archiveinfo['id'] = archive_id
     insert = InsertProcessor('archiveinfo', data=archiveinfo)
     insert.execute()
