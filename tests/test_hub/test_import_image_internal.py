@@ -7,6 +7,11 @@ import tempfile
 import kojihub
 
 
+# importImageInternal is now part of ImageBuildImporter
+def importImageInternal(task_id, build_id, imgdata):
+    importer = kojihub.ImageBuildImporter(task_id, build_id, {})
+    importer.importImageInternal(imgdata)
+
 
 class TestImportImageInternal(unittest.TestCase):
     def setUp(self):
@@ -43,7 +48,7 @@ class TestImportImageInternal(unittest.TestCase):
         get_archive_type.return_value = 4
         work.return_value = self.tempdir
         os.makedirs(self.tempdir + "/tasks/1/1")
-        kojihub.importImageInternal(task_id=1, build_id=2, imgdata=imgdata)
+        importImageInternal(task_id=1, build_id=2, imgdata=imgdata)
 
     @mock.patch('kojihub.get_rpm')
     @mock.patch('koji.pathinfo.build')
@@ -95,7 +100,7 @@ class TestImportImageInternal(unittest.TestCase):
         with open(workdir + '/foo.log', 'w'):
             pass
 
-        kojihub.importImageInternal(task_id=1, build_id=2, imgdata=imgdata)
+        importImageInternal(task_id=1, build_id=2, imgdata=imgdata)
 
         # Check that the log symlink made it to where it was supposed to.
         dest = os.readlink(workdir + '/foo.log')
