@@ -13,6 +13,8 @@ import kojihub
 
 
 orig_import_archive_internal = kojihub.import_archive_internal
+IP = kojihub.InsertProcessor
+UP = kojihub.UpdateProcessor
 
 
 class TestCompleteImageBuild(unittest.TestCase):
@@ -29,28 +31,46 @@ class TestCompleteImageBuild(unittest.TestCase):
         self.get_build = mock.patch('kojihub.get_build').start()
         mock.patch('kojihub.get_rpm', new=self.my_get_rpm).start()
         self.get_image_build = mock.patch('kojihub.get_image_build').start()
-        self.get_archive_type = mock.patch('kojihub.get_archive_type').start()
+        mock.patch('kojihub.get_archive_type', new=self.my_get_archive_type).start()
         mock.patch('kojihub.lookup_name', new=self.my_lookup_name).start()
         mock.patch.object(kojihub.BuildRoot, 'load', new=self.my_buildroot_load).start()
         mock.patch('kojihub.import_archive_internal',
                     new=self.my_import_archive_internal).start()
-        mock.patch('kojihub._dml').start()
-        mock.patch('kojihub._fetchSingle').start()
+        self._dml = mock.patch('kojihub._dml').start()
         mock.patch('kojihub.build_notification').start()
         mock.patch('kojihub.assert_policy').start()
         mock.patch('kojihub.check_volume_policy',
                 return_value={'id':0, 'name': 'DEFAULT'}).start()
         self.set_up_callbacks()
         self.rpms = {}
+        mock.patch('kojihub.InsertProcessor', new=self.get_insert).start()
+        mock.patch('kojihub.UpdateProcessor', new=self.get_update).start()
+        self.inserts = []
+        self.updates = []
+        mock.patch('kojihub.nextval', new=self.my_nextval).start()
+        self.sequences = {}
 
     def tearDown(self):
         mock.patch.stopall()
         shutil.rmtree(self.tempdir)
 
+    def get_insert(self, *a, **kw):
+        insert = IP(*a, **kw)
+        insert.execute = mock.MagicMock()
+        self.inserts.append(insert)
+        return insert
+
+    def get_update(self, *a, **kw):
+        update = UP(*a, **kw)
+        update.execute = mock.MagicMock()
+        self.updates.append(update)
+        return update
+
     def set_up_files(self, name):
         datadir = os.path.join(os.path.dirname(__file__), 'data/image', name)
         # load image result data for our test build
         data = json.load(file(datadir + '/data.json'))
+        self.db_expect = json.load(file(datadir + '/db.json'))
         for arch in data:
             taskdir = koji.pathinfo.task(data[arch]['task_id'])
             os.makedirs(taskdir)
@@ -73,6 +93,11 @@ class TestCompleteImageBuild(unittest.TestCase):
                 paths.append(os.path.join(logdir, 'image', filename))
         return paths
 
+    def my_nextval(self, sequence):
+        self.sequences.setdefault(sequence, 1000)
+        self.sequences[sequence] += 1
+        return self.sequences[sequence]
+
     def my_get_rpm(self, rpminfo, **kw):
         key = '%(name)s-%(version)s-%(release)s.%(arch)s' % rpminfo
         ret = self.rpms.get(key)
@@ -85,9 +110,16 @@ class TestCompleteImageBuild(unittest.TestCase):
 
     def my_lookup_name(self, table, info, **kw):
         if table == 'btype':
-            return mock.MagicMock()
+            return {
+                    'id': 'BTYPEID:%s' % info,
+                    'name': 'BTYPE:%s' % info,
+                    }
         else:
             raise Exception("Cannot fake call")
+
+    def my_get_archive_type(self, *a, **kw):
+        return dict.fromkeys(['id', 'name', 'description', 'extensions'],
+                'ARCHIVETYPE')
 
     @staticmethod
     def my_buildroot_load(br, id):
@@ -102,11 +134,14 @@ class TestCompleteImageBuild(unittest.TestCase):
     def my_import_archive_internal(self, *a, **kw):
         # this is kind of odd, but we need this to fake the archiveinfo
         share = {}
+        old_ip = kojihub.InsertProcessor
         def my_ip(table, *a, **kw):
             if table == 'archiveinfo':
-                share['archiveinfo'] = kw['data']
+                data = kw['data']
+                data.setdefault('archive_id', 'ARCHIVE_ID')
+                share['archiveinfo'] = data
                 # TODO: need to add id
-            return mock.MagicMock()
+            return old_ip(table, *a, **kw)
         def my_ga(archive_id, **kw):
             return share['archiveinfo']
         with mock.patch('kojihub.InsertProcessor', new=my_ip), \
@@ -211,3 +246,17 @@ class TestCompleteImageBuild(unittest.TestCase):
                 self.assertEqual(keys, k_expect)
                 self.assertEqual(cbargs['type'], 'archive')
                 self.assertEqual(cbargs['build'], buildinfo)
+
+        # db operations
+        # with our other mocks, we should never reach _dml
+        self._dml.assert_not_called()
+        inserts = []
+        for insert in self.inserts:
+            info = [str(insert), insert.data, insert.rawdata]
+            inserts.append(info)
+        updates = []
+        for update in self.updates:
+            info = [str(update), update.data, update.rawdata]
+            updates.append(info)
+        data = {'inserts': inserts, 'updates': updates}
+        self.assertEqual(data, self.db_expect)
