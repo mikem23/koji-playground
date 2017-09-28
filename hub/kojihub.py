@@ -5260,11 +5260,89 @@ class ImageBuildImporter(object):
             if 'task_id' not in sub_results:
                 logger.warning('Task %s failed, no image available' % self.task_id)
                 continue
-            importImageInternal(self.task_id, self.build_id, sub_results)
+            self.importImageInternal(sub_results)
             if 'rpmresults' in sub_results:
                 rpm_results = sub_results['rpmresults']
                 _import_wrapper(rpm_results['task_id'],
                     get_build(self.build_id, strict=True), rpm_results)
+
+    def importImageInternal(self, imgdata):
+        """
+        Import image info and the listing into the database, and move an image
+        to the final resting place. The filesize may be reported as a string if it
+        exceeds the 32-bit signed integer limit. This function will convert it if
+        need be. This is the completeBuild for images; it should not be called for
+        scratch images.
+
+        imgdata is:
+        arch - the arch if the image
+        task_id - the task that created the image
+        files - files associated with the image (appliances have multiple files)
+        rpmlist - the list of RPM NVRs installed into the image
+        """
+
+        task = Task(self.task_id)
+        tinfo = task.getInfo()
+        koji.plugin.run_callbacks('preImport', type='image', image=imgdata)
+
+        # import the build output
+        build_info = get_build(self.build_id, strict=True)
+        workpath = koji.pathinfo.task(imgdata['task_id'])
+        imgdata['relpath'] = koji.pathinfo.taskrelpath(imgdata['task_id'])
+        archives = []
+        for imgfile in imgdata['files']:
+            fullpath = os.path.join(workpath, imgfile)
+            archivetype = get_archive_type(imgfile)
+            logger.debug('image type we are importing is: %s' % archivetype)
+            if not archivetype:
+                raise koji.BuildError('Unsupported image type')
+            archives.append(import_archive(fullpath, build_info, 'image', imgdata))
+
+        # upload logs
+        logs = [f for f in os.listdir(workpath) if f.endswith('.log')]
+        for logfile in logs:
+            logsrc = os.path.join(workpath, logfile)
+            if tinfo['method'] == 'livemedia':
+                # multiarch livemedia spins can have log name conflicts, so we
+                # add the arch to the path
+                logdir = os.path.join(koji.pathinfo.build(build_info),
+                                      'data/logs/image', imgdata['arch'])
+            else:
+                logdir = os.path.join(koji.pathinfo.build(build_info),
+                                      'data/logs/image')
+            koji.ensuredir(logdir)
+            final_path = os.path.join(logdir, os.path.basename(logfile))
+            if os.path.exists(final_path):
+                raise koji.GenericError("Error importing build log. %s already exists." % final_path)
+            if os.path.islink(logsrc) or not os.path.isfile(logsrc):
+                raise koji.GenericError("Error importing build log. %s is not a regular file." % logsrc)
+            safer_move(logsrc, final_path)
+            os.symlink(final_path, logsrc)
+
+        # record all of the RPMs installed in the image(s)
+        # verify they were built in Koji or in an external repo
+        rpm_ids = []
+        for an_rpm in imgdata['rpmlist']:
+            location = an_rpm.get('location')
+            if location:
+                data = add_external_rpm(an_rpm, location, strict=False)
+            else:
+                data = get_rpm(an_rpm, strict=True)
+            rpm_ids.append(data['id'])
+
+        # associate those RPMs with the image
+        q = """INSERT INTO archive_rpm_components (archive_id,rpm_id)
+               VALUES (%(archive_id)i,%(rpm_id)i)"""
+        for archive in archives:
+            logger.info('working on archive %s', archive)
+            if archive['filename'].endswith('xml'):
+                continue
+            logger.info('associating installed rpms with %s', archive['id'])
+            for rpm_id in rpm_ids:
+                _dml(q, {'archive_id': archive['id'], 'rpm_id': rpm_id})
+
+        koji.plugin.run_callbacks('postImport', type='image', image=imgdata,
+                                  build=build_info, fullpath=fullpath)
 
 
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
@@ -8711,86 +8789,6 @@ def rpmdiff(basepath, rpmlist):
                 'The following noarch package built differently on different architectures: %s\n'
                 'rpmdiff output was:\n%s' % (os.path.basename(first_rpm), output))
 
-def importImageInternal(task_id, build_id, imgdata):
-    """
-    Import image info and the listing into the database, and move an image
-    to the final resting place. The filesize may be reported as a string if it
-    exceeds the 32-bit signed integer limit. This function will convert it if
-    need be. This is the completeBuild for images; it should not be called for
-    scratch images.
-
-    imgdata is:
-    arch - the arch if the image
-    task_id - the task that created the image
-    files - files associated with the image (appliances have multiple files)
-    rpmlist - the list of RPM NVRs installed into the image
-    """
-    host = Host()
-    host.verify()
-    task = Task(task_id)
-    task.assertHost(host.id)
-    tinfo = task.getInfo()
-
-    koji.plugin.run_callbacks('preImport', type='image', image=imgdata)
-
-    # import the build output
-    build_info = get_build(build_id, strict=True)
-    workpath = koji.pathinfo.task(imgdata['task_id'])
-    imgdata['relpath'] = koji.pathinfo.taskrelpath(imgdata['task_id'])
-    archives = []
-    for imgfile in imgdata['files']:
-        fullpath = os.path.join(workpath, imgfile)
-        archivetype = get_archive_type(imgfile)
-        logger.debug('image type we are importing is: %s' % archivetype)
-        if not archivetype:
-            raise koji.BuildError('Unsupported image type')
-        archives.append(import_archive(fullpath, build_info, 'image', imgdata))
-
-    # upload logs
-    logs = [f for f in os.listdir(workpath) if f.endswith('.log')]
-    for logfile in logs:
-        logsrc = os.path.join(workpath, logfile)
-        if tinfo['method'] == 'livemedia':
-            # multiarch livemedia spins can have log name conflicts, so we
-            # add the arch to the path
-            logdir = os.path.join(koji.pathinfo.build(build_info),
-                                  'data/logs/image', imgdata['arch'])
-        else:
-            logdir = os.path.join(koji.pathinfo.build(build_info),
-                                  'data/logs/image')
-        koji.ensuredir(logdir)
-        final_path = os.path.join(logdir, os.path.basename(logfile))
-        if os.path.exists(final_path):
-            raise koji.GenericError("Error importing build log. %s already exists." % final_path)
-        if os.path.islink(logsrc) or not os.path.isfile(logsrc):
-            raise koji.GenericError("Error importing build log. %s is not a regular file." % logsrc)
-        safer_move(logsrc, final_path)
-        os.symlink(final_path, logsrc)
-
-    # record all of the RPMs installed in the image(s)
-    # verify they were built in Koji or in an external repo
-    rpm_ids = []
-    for an_rpm in imgdata['rpmlist']:
-        location = an_rpm.get('location')
-        if location:
-            data = add_external_rpm(an_rpm, location, strict=False)
-        else:
-            data = get_rpm(an_rpm, strict=True)
-        rpm_ids.append(data['id'])
-
-    # associate those RPMs with the image
-    q = """INSERT INTO archive_rpm_components (archive_id,rpm_id)
-           VALUES (%(archive_id)i,%(rpm_id)i)"""
-    for archive in archives:
-        logger.info('working on archive %s', archive)
-        if archive['filename'].endswith('xml'):
-            continue
-        logger.info('associating installed rpms with %s', archive['id'])
-        for rpm_id in rpm_ids:
-            _dml(q, {'archive_id': archive['id'], 'rpm_id': rpm_id})
-
-    koji.plugin.run_callbacks('postImport', type='image', image=imgdata,
-                              build=build_info, fullpath=fullpath)
 
 #
 # XMLRPC Methods
