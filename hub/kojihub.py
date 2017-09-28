@@ -5801,7 +5801,9 @@ class CG_Importer(object):
         for fileinfo in self.prepped_outputs:
             br_id = fileinfo.get('buildroot_id')
             if br_id is None:
-                assert fileinfo['type'] == 'log'
+                if fileinfo['type'] != 'log':
+                    raise koji.GenericError(
+                            'No buildroot for %(filename)s' % fileinfo)
             else:
                 brinfo = self.brmap.get(fileinfo['buildroot_id'])
                 if not brinfo:
