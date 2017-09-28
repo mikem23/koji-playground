@@ -5219,6 +5219,55 @@ class MavenBuildImporter(object):
         build_notification(self.task_id, self.build_id)
 
 
+class ImageBuildImporter(object):
+    """Bridge between completeImageBuild and cg_import"""
+
+    def __init__(self, task_id, build_id, results):
+        self.task_id = task_id
+        self.build_id = build_id
+        self.results = results
+        self.metadata = {
+                'metadata_version': 0,
+                'build': {},
+                'buildroots': [],
+                'output': [],
+                }
+
+    def do_import(self):
+        self.importImage()
+
+        st_complete = koji.BUILD_STATES['COMPLETE']
+        build_info = get_build(self.build_id)
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+
+        update = UpdateProcessor('build', clauses=['id=%(build_id)i'],
+                                 values={'build_id': self.build_id})
+        update.set(id=self.build_id, state=st_complete)
+        update.rawset(completion_time='now()')
+        update.execute()
+
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+
+        apply_volume_policy(build_info, strict=False)
+        # send email
+        build_notification(self.task_id, self.build_id)
+
+    def importImage(self):
+        """
+        Import a built image, populating the database with metadata and
+        moving the image to its final location.
+        """
+        for sub_results in self.results.values():
+            if 'task_id' not in sub_results:
+                logger.warning('Task %s failed, no image available' % self.task_id)
+                continue
+            importImageInternal(self.task_id, self.build_id, sub_results)
+            if 'rpmresults' in sub_results:
+                rpm_results = sub_results['rpmresults']
+                _import_wrapper(rpm_results['task_id'],
+                    get_build(self.build_id, strict=True), rpm_results)
+
+
 def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
     """Import a single rpm into the database
 
@@ -12040,23 +12089,9 @@ class HostExports(object):
         host.verify()
         task = Task(task_id)
         task.assertHost(host.id)
-        self.importImage(task_id, build_id, results)
 
-        st_complete = koji.BUILD_STATES['COMPLETE']
-        build_info = get_build(build_id)
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
-
-        update = UpdateProcessor('build', clauses=['id=%(build_id)i'],
-                                 values={'build_id': build_id})
-        update.set(id=build_id, state=st_complete)
-        update.rawset(completion_time='now()')
-        update.execute()
-
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
-
-        apply_volume_policy(build_info, strict=False)
-        # send email
-        build_notification(task_id, build_id)
+        importer = ImageBuildImporter(task_id, build_id, results)
+        importer.do_import()
 
     def initMavenBuild(self, task_id, build_info, maven_info):
         """Create a new in-progress Maven build
@@ -12294,18 +12329,21 @@ class HostExports(object):
 
     def importImage(self, task_id, build_id, results):
         """
-        Import a built image, populating the database with metadata and
+        [DEPRECATED] Import a built image, populating the database with metadata and
         moving the image to its final location.
+
+        This call amounts to one part of the completeImageBuild call and
+        should not be used directly. Koji builders stopped using this call
+        in version 1.9.
         """
-        for sub_results in results.values():
-            if 'task_id' not in sub_results:
-                logger.warning('Task %s failed, no image available' % task_id)
-                continue
-            importImageInternal(task_id, build_id, sub_results)
-            if 'rpmresults' in sub_results:
-                rpm_results = sub_results['rpmresults']
-                _import_wrapper(rpm_results['task_id'],
-                    get_build(build_id, strict=True), rpm_results)
+        logger.warning('host.importImage() is DEPRECATED')
+        host = Host()
+        host.verify()
+        task = Task(task_id)
+        task.assertHost(host.id)
+
+        importer = ImageBuildImporter(task_id, build_id, results)
+        importer.importImage()
 
     def tagNotification(self, is_successful, tag_id, from_id, build_id, user_id, ignore_success=False, failure_msg=''):
         """Create a tag notification message.
