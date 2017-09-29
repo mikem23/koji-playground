@@ -5294,7 +5294,7 @@ class ImageBuildImporter(object):
                     'checksum': self.get_file_md5(fullpath),
                     'extra': {
                         'typeinfo': {
-                            'image': {},
+                            'image': {'arch': result['arch']},
                             }
                         }
                     }
@@ -6000,7 +6000,7 @@ class CG_Importer(object):
             br_id = fileinfo.get('buildroot_id')
             if br_id is None:
                 # only allowed for logs
-                if fileinfo['type'] != 'log':
+                if fileinfo['type'] != 'log' and not self._internal:  # XXX
                     raise koji.GenericError(
                             'No buildroot for %(filename)s' % fileinfo)
             elif br_id not in self.br_prep:
@@ -6018,9 +6018,10 @@ class CG_Importer(object):
         for fileinfo in self.prepped_outputs:
             br_id = fileinfo.get('buildroot_id')
             if br_id is None:
-                if fileinfo['type'] != 'log':
+                if fileinfo['type'] != 'log' and not self._internal:  # XXX
                     raise koji.GenericError(
                             'No buildroot for %(filename)s' % fileinfo)
+                brinfo = None
             else:
                 brinfo = self.brmap.get(fileinfo['buildroot_id'])
                 if not brinfo:
@@ -6105,11 +6106,12 @@ class CG_Importer(object):
         btype = fileinfo['hub.btype']
         type_info = fileinfo['hub.type_info']
 
+        br_id = getattr(brinfo, 'id', None)  # XXX
         opts = {}
         if self._internal:
             opts['trust_sum'] = True
         archiveinfo = import_archive_internal(fn, buildinfo, btype, type_info,
-                brinfo.id, fileinfo, **opts)
+                br_id, fileinfo, **opts)
 
         if 'components' in fileinfo:
             self.import_components(archiveinfo['id'], fileinfo)
