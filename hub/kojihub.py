@@ -5474,7 +5474,6 @@ class CG_Importer(object):
     def __init__(self):
         self.buildinfo = None
         self.metadata_only = False
-        self._internal = False
 
     def do_import(self, metadata, directory):
 
@@ -5545,9 +5544,6 @@ class CG_Importer(object):
     def assert_cg_access(self):
         """Check that user has access for all referenced content generators"""
 
-        if self._internal:
-            self.cgs = set()
-            return
         cgs = set()
         for brdata in self.metadata['buildroots']:
             cginfo = brdata['content_generator']
@@ -5591,23 +5587,22 @@ class CG_Importer(object):
         metadata = self.metadata
         buildinfo = get_build(metadata['build'], strict=False)
         if buildinfo:
-            self.check_existing_build(buildinfo)
-            buildinfo['extra'] = metadata['build']['extra']
+            # TODO : allow in some cases
+            raise koji.GenericError("Build already exists: %r" % buildinfo)
         else:
             # gather needed data
             buildinfo = dslice(metadata['build'], ['name', 'version', 'release', 'extra', 'source'])
             # epoch is not in the metadata spec, but we allow it to be specified
             buildinfo['epoch'] = metadata['build'].get('epoch', None)
-            buildinfo['task_id'] = metadata['build'].get('task_id', None)
-        buildinfo['start_time'] = \
-            datetime.datetime.fromtimestamp(float(metadata['build']['start_time'])).isoformat(' ')
-        buildinfo['completion_time'] = \
-            datetime.datetime.fromtimestamp(float(metadata['build']['end_time'])).isoformat(' ')
-        owner = metadata['build'].get('owner', None)
-        if owner:
-            if not isinstance(owner, basestring):
-                raise koji.GenericError("Invalid owner format (expected username): %s" % owner)
-            buildinfo['owner'] = get_user(owner, strict=True)['id']
+            buildinfo['start_time'] = \
+                datetime.datetime.fromtimestamp(float(metadata['build']['start_time'])).isoformat(' ')
+            buildinfo['completion_time'] = \
+                datetime.datetime.fromtimestamp(float(metadata['build']['end_time'])).isoformat(' ')
+            owner = metadata['build'].get('owner', None)
+            if owner:
+                if not isinstance(owner, basestring):
+                    raise koji.GenericError("Invalid owner format (expected username): %s" % owner)
+                buildinfo['owner'] = get_user(owner, strict=True)['id']
         self.buildinfo = buildinfo
 
         koji.check_NVR(buildinfo, strict=True)
@@ -5632,31 +5627,10 @@ class CG_Importer(object):
         self.typeinfo = typeinfo
         return buildinfo
 
-    def check_existing_build(self, buildinfo):
-        """Sanity check an existing build"""
-        if not self._internal:
-            raise koji.GenericError("Build already exists: %r" % buildinfo)
-        # TODO : also allow CGs to reuse in some cases
-        old = buildinfo
-        new = self.metadata['build']
-        # For now, we only support the internal workflow of BUILDING->COMPLETE
-        if old['state'] != koji.BUILD_STATES['BUILDING']:
-            raise koji.GenericError("Unable to complete build: state is %s" \
-                    % koji.BUILD_STATES[binfo['state']])
-        for key in ('name', 'version', 'release', 'epoch', 'task_id', 'source'):
-            if old[key] != new[key]:
-                raise koji.GenericError(
-                        "Unable to complete build: %s mismatch (current: %s, "
-                        "new: %s)" % (key, old[key], new[key]))
 
     def get_build(self):
-        if 'build_id' in self.buildinfo:
-            if not self._internal:
-                raise koji.GenericError("Unexpected build id")
-            buildinfo = self.update_build()
-        else:
-            build_id = new_build(self.buildinfo)
-            buildinfo = get_build(build_id, strict=True)
+        build_id = new_build(self.buildinfo)
+        buildinfo = get_build(build_id, strict=True)
 
         # handle special build types
         for btype in self.typeinfo:
@@ -5679,16 +5653,6 @@ class CG_Importer(object):
 
         self.buildinfo = buildinfo
         return buildinfo
-
-    def update_build(self):
-        new = self.metadata['build']
-        st_complete = koji.BUILD_STATES['COMPLETE']
-        update = UpdateProcessor('build', clauses=['id=%(build_id)s'],
-            values=vars(self))
-        update.set(state=st_complete)
-        update.set(volume_id=new['volume_id'])
-        update.rawset(completion_time='NOW()')
-
 
 
     def import_metadata(self):
@@ -5731,10 +5695,6 @@ class CG_Importer(object):
 
 
     def prep_buildroot(self, brdata):
-        if 'koji_buildroot_id' in brdata:
-            # we already have it
-            # TODO: get it
-            return BuildRoot(brdata['koji_buildroot_id'])
         ret = {}
         brinfo = {
             'cg_id': brdata['cg_id'],
@@ -5757,10 +5717,6 @@ class CG_Importer(object):
 
     def import_buildroot(self, entry):
         """Import the prepared buildroot data"""
-
-        if isinstance(entry, BuildRoot):
-            # we already have it
-            return entry
 
         # buildroot entry
         br = BuildRoot()
