@@ -5670,9 +5670,7 @@ class CG_Importer(object):
 
     def prep_brs(self):
         metadata = self.metadata
-        br_used = [f.get('buildroot_id') for f in metadata['output']]
-        # ok for logs to not have buildroot info
-        br_used = set([b for b in br_used if b is not None])
+        br_used = set([f['buildroot_id'] for f in metadata['output']])
         br_idx = {}
         for brdata in metadata['buildroots']:
             brfakeid = brdata['id']
@@ -5839,13 +5837,7 @@ class CG_Importer(object):
             workdir = koji.pathinfo.work()
             path = os.path.join(workdir, self.directory, fileinfo.get('relpath', ''), fileinfo['filename'])
             fileinfo['hub.path'] = path
-            br_id = fileinfo.get('buildroot_id')
-            if br_id is None:
-                # only allowed for logs
-                if fileinfo['type'] != 'log':
-                    raise koji.GenericError(
-                            'No buildroot for %(filename)s' % fileinfo)
-            elif br_id not in self.br_prep:
+            if fileinfo['buildroot_id'] not in self.br_prep:
                 raise koji.GenericError("Missing buildroot metadata for id %(buildroot_id)r" % fileinfo)
             if fileinfo['type'] not in ['rpm', 'log']:
                 self.prep_archive(fileinfo)
