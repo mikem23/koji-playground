@@ -91,6 +91,8 @@ class TestCompleteImageBuild(unittest.TestCase):
                 paths.append(os.path.join(imgdir, filename))
             for filename in data[arch]['logs']:
                 paths.append(os.path.join(logdir, 'image', filename))
+        bdir = koji.pathinfo.build(buildinfo)
+        paths.append(os.path.join(bdir, 'metadata.json'))
         return paths
 
     def my_nextval(self, sequence):
@@ -188,6 +190,8 @@ class TestCompleteImageBuild(unittest.TestCase):
         # check callbacks
         cbtypes = [c[0] for c in self.callbacks]
         cb_expect = [
+            'preBuildStateChange',  # building -> completed
+            'postBuildStateChange',
             'preImport',    # build
             'preImport',    # archive 1...
             'postImport',
@@ -200,8 +204,6 @@ class TestCompleteImageBuild(unittest.TestCase):
             'preImport',    # archive 5...
             'postImport',
             'postImport',   # build
-            'preBuildStateChange',  # building -> completed
-            'postBuildStateChange',
             ]
         self.assertEqual(cbtypes, cb_expect)
         cb_idx = {}
