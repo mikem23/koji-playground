@@ -35,7 +35,6 @@ import errno
 import logging
 import fcntl
 import fnmatch
-from functools import partial
 import hashlib
 from koji.util import md5_constructor
 from koji.util import sha1_constructor
@@ -5057,6 +5056,7 @@ class RPMBuildImporter(object):
         bdata['task_id'] = self.task_id
         bdata['extra'] = {}
         bdata['source'] = None
+        bdata['start_time'] = tinfo['start_ts']  # XXX
         bdata['end_time'] = time.time()
         if self.build_id is not None:
             bdata['koji_build_id'] = self.build_id
@@ -5105,32 +5105,15 @@ class MavenBuildImporter(object):
         self.build_id = build_id
         self.maven_results = maven_results
         self.rpm_results = rpm_results
-        self.metadata = {
-                'metadata_version': 0,
-                'build': {},
-                'buildroots': [],
-                'output': [],
-                }
 
     def do_import(self):
-        # get build data
         build_info = get_build(self.build_id, strict=True)
         maven_info = get_maven_build(self.build_id, strict=True)
-        build_info['end_time'] = time.time()
-        build_info['extra'] = {'typeinfo': {'maven': maven_info}}
-        # do we need to do more here for rpm wrappers?
-        self.metadata['build'] = build_info
 
-        # just one buildroot
-        maven_buildroot_id = self.maven_results['buildroot_id']
-        brdata = [dict.fromkeys(['id', 'koji_buildroot_id'], maven_buildroot_id)]
-        self.metadata['buildroots'] = brdata
-
-        # and the outputs...
-        output = self.metadata['output']
         maven_task_id = self.maven_results['task_id']
+        maven_buildroot_id = self.maven_results['buildroot_id']
         maven_task_dir = koji.pathinfo.task(maven_task_id)
-        maven_metadata_files = []
+        # import the build output
         for relpath, files in self.maven_results['files'].iteritems():
             dir_maven_info = maven_info
             poms = [f for f in files if f.endswith('.pom')]
@@ -5152,69 +5135,38 @@ class MavenBuildImporter(object):
                     continue
                 filepath = os.path.join(maven_task_dir, relpath, filename)
                 if filename == 'maven-metadata.xml':
-                    # these are handled at the end
-                    maven_metadata_files.append([relpath, filename])
+                    # We want the maven-metadata.xml to be present in the build dir
+                    # so that it's a valid Maven repo, but we don't want to track it
+                    # in the database because we regenerate it when creating tag repos.
+                    # So we special-case it here.
+                    destdir = os.path.join(koji.pathinfo.mavenbuild(build_info),
+                                           relpath)
+                    _import_archive_file(filepath, destdir)
+                    _generate_maven_metadata(destdir)
                     continue
                 archivetype = get_archive_type(filename)
                 if not archivetype:
                     # Unknown archive type, fail the build
                     raise koji.BuildError('unsupported file type: %s' % filename)
-                # add this output
-                m = md5_constructor()
-                chunks = iter(partial(file(filepath).read, 819200), b'')
-                [m.update(b) for b in chunks]
-                # TODO: avoid recalculating checksum later
-                fileinfo = {
-                        'buildroot_id': maven_buildroot_id,
-                        'type': 'file',
-                        'relpath': relpath,
-                        'filename': filename,
-                        'filesize': os.path.getsize(filepath),
-                        'checksum_type': 'md5',
-                        'checksum': m.hexdigest(),
-                        'extra': {
-                            'typeinfo': {
-                                'maven': dir_maven_info,
-                                }
-                            }
-                        }
-                output.append(fileinfo)
-                # import_archive(filepath, build_info, 'maven', dir_maven_info, maven_buildroot_id)
+                import_archive(filepath, build_info, 'maven', dir_maven_info, maven_buildroot_id)
 
-        # logs are outputs too
+        # move the logs to their final destination
         for log_path in self.maven_results['logs']:
-            fileinfo = {
-                        'buildroot_id': maven_buildroot_id,
-                        'type': 'log',
-                        'relpath': os.path.dirname(log_path),
-                        'filename': os.path.basename(log_path),
-                        'logdir': 'maven',
-                        }
-            output.append(fileinfo)
-            # import_build_log(os.path.join(maven_task_dir, log_path),
-            #                  build_info, subdir='maven')
+            import_build_log(os.path.join(maven_task_dir, log_path),
+                             build_info, subdir='maven')
 
         if self.rpm_results:
-            # TODO - fix this
-            raise NotImplemented
             _import_wrapper(self.rpm_results['task_id'], build_info, self.rpm_results)
 
-        # let cg do the import
-        importer = CG_Importer()
-        importer._internal = True
-        binfo = importer.do_import(self.metadata, maven_task_dir)
-
-        # add the maven metadata files (untracked, not handled through cg_import)
-        for relpath, filename in maven_metadata_files:
-            # We want the maven-metadata.xml to be present in the build dir
-            # so that it's a valid Maven repo, but we don't want to track it
-            # in the database because we regenerate it when creating tag repos.
-            # So we special-case it here.
-            filepath = os.path.join(maven_task_dir, relpath, filename)
-            destdir = os.path.join(koji.pathinfo.mavenbuild(build_info),
-                                   relpath)
-            _import_archive_file(filepath, destdir)
-            _generate_maven_metadata(destdir)
+        # update build state
+        st_complete = koji.BUILD_STATES['COMPLETE']
+        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+        update = UpdateProcessor('build', clauses=['id=%(build_id)i'],
+                                 values={'build_id': self.build_id})
+        update.set(state=st_complete)
+        update.rawset(completion_time='now()')
+        update.execute()
+        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
 
         # send email
         build_notification(self.task_id, self.build_id)
@@ -5603,21 +5555,16 @@ class CG_Importer(object):
         metadata = self.metadata
         buildinfo = get_build(metadata['build'], strict=False)
         if buildinfo:
-            # for _internal imports only
             self.check_existing_build(buildinfo)
             buildinfo['extra'] = metadata['build']['extra']
-            if 'start_time' in metadata:
-                buildinfo['start_time'] = \
-                    datetime.datetime.fromtimestamp(float(
-                        metadata['build']['start_time'])).isoformat(' ')
         else:
             # gather needed data
             buildinfo = dslice(metadata['build'], ['name', 'version', 'release', 'extra', 'source'])
             # epoch is not in the metadata spec, but we allow it to be specified
             buildinfo['epoch'] = metadata['build'].get('epoch', None)
             buildinfo['task_id'] = metadata['build'].get('task_id', None)
-            buildinfo['start_time'] = \
-                datetime.datetime.fromtimestamp(float(metadata['build']['start_time'])).isoformat(' ')
+        buildinfo['start_time'] = \
+            datetime.datetime.fromtimestamp(float(metadata['build']['start_time'])).isoformat(' ')
         buildinfo['completion_time'] = \
             datetime.datetime.fromtimestamp(float(metadata['build']['end_time'])).isoformat(' ')
         owner = metadata['build'].get('owner', None)
