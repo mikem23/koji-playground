@@ -4841,12 +4841,8 @@ def apply_volume_policy(build, strict=False):
     _set_build_volume(build, volume, strict=True)
 
 
-def new_build(data, strict=False):
-    """Insert a new build entry
-
-    Will recycle an existing build entry under some circumstances
-    If strict is True, such build recycling is disabled
-    """
+def new_build(data):
+    """insert a new build entry"""
 
     data = data.copy()
 
@@ -4882,8 +4878,6 @@ def new_build(data, strict=False):
     #check for existing build
     old_binfo = get_build(data)
     if old_binfo:
-        if strict:
-            raise koji.GenericError("Build exists: %r" % old_binfo)
         recycle_build(old_binfo, data)
         # Raises exception if there is a problem
         return old_binfo['id']
@@ -5626,7 +5620,7 @@ class CG_Importer(object):
             self.update_build()
             build_id = self.buildinfo['id']
         else:
-            build_id = new_build(self.buildinfo, strict=True)
+            build_id = new_build(self.buildinfo)
         buildinfo = get_build(build_id, strict=True)
 
         # handle special build types
