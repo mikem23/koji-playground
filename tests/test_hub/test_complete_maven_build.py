@@ -130,14 +130,14 @@ class TestCompleteMavenBuild(unittest.TestCase):
         # check callbacks
         cbtypes = [c[0] for c in self.callbacks]
         cb_expect = [
-            'preBuildStateChange',  # building -> completed
-            'postBuildStateChange',
             'preImport',    # archive 1...
             'postImport',
             'preImport',    # archive 2...
             'postImport',
             'preImport',    # archive 3...
             'postImport',
+            'preBuildStateChange',  # building -> completed
+            'postBuildStateChange',
             ]
         self.assertEqual(cbtypes, cb_expect)
 
