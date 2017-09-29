@@ -5470,7 +5470,7 @@ class CG_Importer(object):
 
     def get_metadata(self, metadata, directory):
         """Get the metadata from the args"""
-        logger.debug("Reading import metadata")
+
         if isinstance(metadata, dict):
             self.metadata = metadata
             try:
@@ -5544,7 +5544,6 @@ class CG_Importer(object):
 
 
     def prep_build(self):
-        logger.debug("Preparing build data")
         metadata = self.metadata
         buildinfo = get_build(metadata['build'], strict=False)
         if buildinfo:
@@ -5593,7 +5592,6 @@ class CG_Importer(object):
         """Sanity check an existing build"""
         if not self._internal:
             raise koji.GenericError("Build already exists: %r" % buildinfo)
-        logger.debug("Attempting to update existing build")
         # TODO : also allow CGs to reuse in some cases
         old = buildinfo
         new = self.metadata['build']
@@ -5613,7 +5611,6 @@ class CG_Importer(object):
                         % (old['build_id'], new['koji_build_id']))
 
     def get_build(self):
-        logger.debug("Creating/updating build entry")
         if 'build_id' in self.buildinfo:
             if not self._internal:
                 raise koji.GenericError("Unexpected build id")
@@ -5657,7 +5654,7 @@ class CG_Importer(object):
 
     def import_metadata(self):
         """Import the raw metadata"""
-        logger.debug("Importing metadata file")
+
         # TODO - eventually, import this as an archive, but for now we just write it to disk
         #   because there are complications
         #       - no buildroot (could confuse policies checking that builds were built sanely
@@ -5673,7 +5670,6 @@ class CG_Importer(object):
 
 
     def prep_brs(self):
-        logger.debug("Preparing buildroot data")
         metadata = self.metadata
         br_used = [f.get('buildroot_id') for f in metadata['output']]
         # ok for logs to not have buildroot info
@@ -5690,7 +5686,6 @@ class CG_Importer(object):
 
 
     def import_brs(self):
-        logger.debug("Importing buildroot data")
         brmap = {}
         for brfakeid in self.br_prep:
             entry = self.br_prep[brfakeid]
@@ -5836,7 +5831,6 @@ class CG_Importer(object):
         return archive
 
     def prep_outputs(self):
-        logger.debug("Preparing outputs")
         metadata = self.metadata
         outputs = []
         for fileinfo in metadata['output']:
@@ -5863,7 +5857,6 @@ class CG_Importer(object):
 
 
     def import_outputs(self):
-        logger.debug("Importing outputs")
         for fileinfo in self.prepped_outputs:
             br_id = fileinfo.get('buildroot_id')
             if br_id is None:
