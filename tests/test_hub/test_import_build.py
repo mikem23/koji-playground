@@ -207,10 +207,10 @@ class TestImportBuild(unittest.TestCase):
 
         self.get_header_fields.return_value = {
             'sourcepackage': 1,
-            'name': 'name',
-            'version': 'version',
-            'release': 'release',
-            'arch': 'arch',
+            'name': 'foo',
+            'version': '1.1',
+            'release': '23',
+            'arch': 'ARCH',
             'epoch': 'epoch',
             'buildtime': 'buildtime',
             'sigmd5': 'sigmd5',
@@ -227,7 +227,7 @@ class TestImportBuild(unittest.TestCase):
 
     def test_import_build_completed(self):
         srpm = self.src_filename
-        rpms = ['foo-1.1.noarch.rpm', 'foo-bar-1.1.noarch.rpm']
+        rpms = ['foo-1.1-23.noarch.rpm', 'foo-bar-1.1-23.noarch.rpm']
         brmap = dict.fromkeys(rpms + [srpm], 1001)
         task_id = 42
         build_id = 37
