@@ -5236,8 +5236,6 @@ class ImageBuildImporter(object):
         self.buildinfo = get_build(self.build_id)
 
     def do_import(self):
-        self.importImage()
-
         # get build info
         binfo = dslice(self.buildinfo, ['name', 'version', 'release', 'epoch'])
         binfo['task_id'] = self.task_id
@@ -6792,6 +6790,7 @@ def _import_archive_file(filepath, destdir):
     """
     final_path = "%s/%s" % (destdir,
                             koji.fixEncoding(os.path.basename(filepath)))
+    logger.error('Moving archive to: %s', final_path)
     if os.path.exists(final_path):
         raise koji.GenericError("Error importing archive file, %s already exists" % final_path)
     if os.path.islink(filepath) or not os.path.isfile(filepath):
