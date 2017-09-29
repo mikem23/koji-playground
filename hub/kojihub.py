@@ -4709,6 +4709,11 @@ def change_build_volume(build, volume, strict=True):
     context.session.assertPerm('admin')
     volinfo = lookup_name('volume', volume, strict=True)
     binfo = get_build(build, strict=True)
+    _set_build_volume(binfo, volinfo, strict)
+
+
+def _set_build_volume(binfo, volinfo, strict=True):
+    """Move a build to a different storage volume"""
     if binfo['volume_id'] == volinfo['id']:
         if strict:
             raise koji.GenericError("Build %(nvr)s already on volume %(volume_name)s" % binfo)
@@ -4783,6 +4788,55 @@ def change_build_volume(build, volume, strict=True):
         os.symlink(relpath, basedir)
 
     koji.plugin.run_callbacks('postBuildStateChange', attribute='volume_id', old=old_binfo['volume_id'], new=volinfo['id'], info=binfo)
+
+
+def pick_build_volume(build):
+    """Given a build, apply policy to determine what the volume should be
+
+    Returns None if no match
+    Raises exception on bad policies
+    """
+    policy_data = {'build': build}
+    ruleset = context.policy.get('volume')
+    result = ruleset.apply(policy_data)
+    if result is None:
+        logger.warn('No volume policy match for build %s', build)
+        return None
+    vol = lookup_name('volume', result)
+    if not vol:
+        logger.error('Volume policy returned unknown volume %s for %s',
+                result, build)
+        raise koji.GenericError("Policy returned invalid volume: %s" % result)
+    return vol
+
+
+def apply_volume_policy(build, strict=False):
+    """Apply volume policy, moving build as needed
+
+    build should be the buildinfo returned by get_build()
+
+    The strict options determines what happens in the case of a bad policy.
+    If strict is True, and exception will be raised. Otherwise, the existing
+    volume we be retained (or DEFAULT will be used if the build has no volume)
+    """
+    volume = None
+    try:
+        volume = pick_build_volume(build)
+    except Exception:
+        if strict:
+            raise
+    if volume is None:
+        # no policy match or bad policy
+        if strict:
+            raise koji.GenericError('Cannot determine volume for build %s'
+                            % build)
+        # just leave the build where it is
+        return
+    # at this point, we should have the intended volume
+    if build['volume_id'] == volume['id']:
+        # nothing to do
+        return
+    _set_build_volume(build, volume, strict=True):
 
 
 def new_build(data):
