@@ -5642,13 +5642,12 @@ class CG_Importer(object):
         return buildinfo
 
     def update_build(self):
-        new = self.buildinfo
+        new = self.metadata['build']
         st_complete = koji.BUILD_STATES['COMPLETE']
         update = UpdateProcessor('build', clauses=['id=%(build_id)s'],
             values=vars(self))
         update.set(state=st_complete)
-        if 'volume_id' in new:
-            update.set(volume_id=new['volume_id'])
+        update.set(volume_id=new['volume_id'])
         update.rawset(completion_time='NOW()')
 
 
