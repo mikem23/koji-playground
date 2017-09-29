@@ -4833,7 +4833,7 @@ def apply_volume_policy(build, strict=False):
     volume we be retained (or DEFAULT will be used if the build has no volume)
     """
     policy_data = {'build': build}
-    volume = check_volume_policy(build, strict=strict)
+    volume = check_volume_policy(policy_data, strict=strict)
     if volume is None:
         # just leave the build where it is
         return
