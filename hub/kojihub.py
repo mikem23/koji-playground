@@ -5232,24 +5232,108 @@ class ImageBuildImporter(object):
                 'buildroots': [],
                 'output': [],
                 }
+        self.taskinfo = Task(self.task_id).getInfo()
+        self.buildinfo = get_build(self.build_id)
 
     def do_import(self):
         self.importImage()
 
-        st_complete = koji.BUILD_STATES['COMPLETE']
-        build_info = get_build(self.build_id)
-        koji.plugin.run_callbacks('preBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+        # get build info
+        binfo = dslice(self.buildinfo, ['name', 'version', 'release'])
+        binfo['task_id'] = self.task_id
+        binfo['source'] = None
+        binfo['end_time'] = time.time()
+        binfo['extra'] = {'typeinfo': {'image': {}}}
+        self.metadata['build'] = binfo
 
-        update = UpdateProcessor('build', clauses=['id=%(build_id)i'],
-                                 values={'build_id': self.build_id})
-        update.set(id=self.build_id, state=st_complete)
-        update.rawset(completion_time='now()')
-        update.execute()
+        outputs = []
+        for arch in self.results:
+            result = self.results[arch]
+            if 'task_id' not in result:
+                logger.warning('Task %s failed, no image available' % self.task_id)
+                # XXX: shouldn't we fail this?
+                continue
+            outputs.extend(self.get_arch_outputs(result))
+        self.metadata['output'] = outputs
 
-        koji.plugin.run_callbacks('postBuildStateChange', attribute='state', old=build_info['state'], new=st_complete, info=build_info)
+        # currently none of the image tasks provides buildroot info,
+        # but we'll leave them a way to do it
+        brs = set([o.get('buildroot_id') for o in outputs])
+        brs = [n for n in brs if n is not None]
+        brdata = [dict.fromkeys(['id', 'koji_buildroot_id'], n) for n in brs]
+        self.metadata['buildroots'] = brdata
 
         # send email
         build_notification(self.task_id, self.build_id)
+
+    def get_arch_outputs(self, result):
+
+        # build output
+        workpath = koji.pathinfo.task(result['task_id'])
+        relpath = koji.pathinfo.taskrelpath(result['task_id'])
+        archives = []
+        for filename in result['files']:
+            fullpath = os.path.join(workpath, filename)
+            archivetype = get_archive_type(filename)
+            logger.debug('image type we are importing is: %s' % archivetype)
+            if not archivetype:
+                raise koji.BuildError('Unsupported image type')
+            fileinfo = {
+                    'buildroot_id': None,  # XXX
+                    'type': 'file',
+                    'relpath': relpath,
+                    'filename': filename,
+                    'filesize': os.path.getsize(fullpath),
+                    'checksum_type': 'md5',
+                    'checksum': self.get_file_md5(fullpath),
+                    'extra': {
+                        'typeinfo': {
+                            'image': {},
+                            }
+                        }
+                    }
+            archives.append(fileinfo)
+
+        # logs
+        logs = []
+        # XXX: caller doesn't tell us about logs, we have to look for them
+        for filename in os.listdir(workpath):
+            if not filename.endswith('.log'):
+                continue
+                # XXX: couldn't we have other log extensions?
+            fileinfo = {
+                        'type': 'log',
+                        'relpath': relpath,
+                        'filename': filename,
+                        'logdir': 'image',
+                        }
+            if self.taskinfo['method'] == 'livemedia':
+                # multiarch livemedia spins can have log name conflicts, so we
+                # add the arch to the path
+                fileinfo['logdir'] = 'image/%(arch)s' % result
+            logs.append(fileinfo)
+
+        # record all of the RPMs installed in the image(s)
+        # XXX: caller only gives us one component list, but multiple files
+        components = []
+        for an_rpm in result['rpmlist']:
+            comp = an_rpm.copy()
+            an_rpm['type'] = 'rpm'
+
+        # associate those RPMs with the image
+        for archive in archives:
+            if archive['filename'].endswith('xml'):
+                continue
+            archive['components'] = list(components)  # copy
+
+        return archives + logs
+
+    def get_file_md5(self, filepath):
+        """Fetch info about the file itself"""
+        m = md5_constructor()
+        chunks = iter(partial(file(filepath).read, 819200), b'')
+        [m.update(b) for b in chunks]
+        return m.hexdigest()
 
     def importImage(self):
         """
