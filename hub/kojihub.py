@@ -5239,7 +5239,7 @@ class ImageBuildImporter(object):
         self.importImage()
 
         # get build info
-        binfo = dslice(self.buildinfo, ['name', 'version', 'release'])
+        binfo = dslice(self.buildinfo, ['name', 'version', 'release', 'epoch'])
         binfo['task_id'] = self.task_id
         binfo['source'] = None
         binfo['end_time'] = time.time()
@@ -5262,6 +5262,12 @@ class ImageBuildImporter(object):
         brs = [n for n in brs if n is not None]
         brdata = [dict.fromkeys(['id', 'koji_buildroot_id'], n) for n in brs]
         self.metadata['buildroots'] = brdata
+
+        # let cg do the import
+        importer = CG_Importer()
+        importer._internal = True
+        binfo = importer.do_import(self.metadata, '')
+
 
         # send email
         build_notification(self.task_id, self.build_id)

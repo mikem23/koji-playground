@@ -166,6 +166,7 @@ class TestCompleteImageBuild(unittest.TestCase):
                 'name': 'some-image',
                 'version': '1.2.3.4',
                 'release': '3',
+                'epoch': None,
                 'source': None,
                 'state': koji.BUILD_STATES['BUILDING'],
                 'volume_id': 0,
