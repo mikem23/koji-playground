@@ -167,87 +167,13 @@ class TestImportRPM(unittest.TestCase):
 
 
 QP = kojihub.QueryProcessor
-
-
-class TestImportBuild(unittest.TestCase):
-
-    def setUp(self):
-        self.tempdir = tempfile.mkdtemp()
-        self.queries = []
-        self.QueryProcessor = mock.patch('kojihub.QueryProcessor',
-                side_effect=self.get_query).start()
-        self.importer = mock.MagicMock()
-        self.CG_Importer = mock.patch('kojihub.CG_Importer',
-                return_value=self.importer).start()
-        self.Task_getInfo = mock.MagicMock()
-        self.Task = mock.patch('kojihub.Task', new=self.Task_getInfo).start()
-        self.get_header_fields = mock.patch('koji.get_header_fields').start()
-        self.exports = kojihub.RootExports()
-        self.setup_rpm()
-
-    def tearDown(self):
-        mock.patch.stopall()
-        shutil.rmtree(self.tempdir)
-
-    def get_query(self, *args, **kwargs):
-        query = QP(*args, **kwargs)
-        query.execute = mock.MagicMock()
-        self.queries.append(query)
-        return query
-
-    def setup_rpm(self):
-        self.filename = self.tempdir + "/name-version-release.arch.rpm"
-        # Touch a file
-        with open(self.filename, 'w'):
-            pass
-        self.src_filename = self.tempdir + "/name-version-release.src.rpm"
-        # Touch a file
-        with open(self.src_filename, 'w'):
-            pass
-
-        self.get_header_fields.return_value = {
-            'sourcepackage': 1,
-            'name': 'foo',
-            'version': '1.1',
-            'release': '23',
-            'arch': 'ARCH',
-            'epoch': 'epoch',
-            'buildtime': 'buildtime',
-            'sigmd5': 'sigmd5',
-        }
-
-    def test_import_build_simple(self):
-        # just an srpm
-        kojihub.import_build(self.src_filename, [])
-
-    def test_import_build_not_srpm(self):
-        self.get_header_fields.return_value['sourcepackage'] = 0
-        with self.assertRaises(koji.GenericError):
-            kojihub.import_build(self.src_filename, [self.filename])
-
-    def test_import_build_completed(self):
-        srpm = self.src_filename
-        rpms = ['foo-1.1-23.noarch.rpm', 'foo-bar-1.1-23.noarch.rpm']
-        brmap = dict.fromkeys(rpms + [srpm], 1001)
-        task_id = 42
-        build_id = 37
-        logs = {'noarch': ['build.log']}
-        kojihub.import_build(srpm, rpms, brmap, task_id, build_id, logs)
-
-        self.CG_Importer.assert_called_once()
-        self.importer.do_import.assert_called_once()
-        metadata = self.importer.do_import.call_args[0][0]
-        # print('')
-        # import pprint; pprint.pprint(metadata)
-        # TODO add assertions on metadata
-
-
 orig_import_rpm = kojihub.import_rpm
 orig_get_rpm = kojihub.get_rpm
 orig_add_rpm_sig = kojihub.add_rpm_sig
+orig_new_build = kojihub.new_build
 
 
-class TestImportBuildCallbacks(unittest.TestCase):
+class TestImportBuild(unittest.TestCase):
 
     def setUp(self):
         # There is a lot of setup here because we're letting the code
@@ -268,6 +194,13 @@ class TestImportBuildCallbacks(unittest.TestCase):
         mock.patch('kojihub.import_rpm', new=self.my_import_rpm).start()
         mock.patch('kojihub.get_rpm', new=self.my_get_rpm).start()
         mock.patch('kojihub.add_rpm_sig', new=self.my_add_rpm_sig).start()
+        mock.patch('kojihub.lookup_name', new=self.my_lookup_name).start()
+        self.context = mock.patch('kojihub.context').start()
+        self.new_build = mock.patch('kojihub.new_build',
+                    side_effect=self.my_new_build).start()
+        self.buildinfo = None
+        mock.patch('kojihub.check_volume_policy',
+                return_value={'id':0, 'name': 'DEFAULT'}).start()
         self.rpm_idx = {}
         self.exports = kojihub.RootExports()
         self.set_up_files()
@@ -293,11 +226,26 @@ class TestImportBuildCallbacks(unittest.TestCase):
         self.queries.append(query)
         return query
 
+    def my_lookup_name(self, table, info, *a, **kw):
+        if table == 'package':
+            return {
+                    'id': 'package:%s' % info,
+                    'name': 'package:%s' % info,
+                    }
+        else:
+            raise Exception("Cannot fake call")
+
     def my_import_rpm(self, *args, **kwargs):
         # wrap original, but index results
         ret = orig_import_rpm(*args, **kwargs)
         self.rpm_idx[ret['id']] = ret
         return ret
+
+    def my_new_build(self, *a, **kw):
+        # we need to let the original run to get the callbacks
+        # but we need to set the return
+        orig_new_build(*a, **kw)
+        return self.buildinfo
 
     def my_get_rpm(self, rpminfo, **kwargs):
         if rpminfo in self.rpm_idx:
@@ -332,13 +280,115 @@ class TestImportBuildCallbacks(unittest.TestCase):
             fp.write('hello world!\n')
         self.logs = {'noarch': [logname]}
 
+    def test_import_build_simple2(self):
+        # just an srpm, no build given
+        taskinfo = {'id': 42, 'start_ts': 1}
+        self.Task.return_value.getInfo.return_value = taskinfo
+        buildinfo = {'id': 37, 'name': 'mytestpkg', 'version': '1.1',
+                'epoch': 7, 'release': '10',
+                'state': koji.BUILD_STATES['BUILDING'],
+                'task_id': taskinfo['id'], 'source': None,
+                'volume_id': 0, 'volume_name': 'DEFAULT',
+                }
+        buildinfo['build_id'] = buildinfo['id']
+        self.buildinfo = buildinfo
+        self.new_build.return_value = buildinfo['id']
+        kojihub.import_build(self.src_filename, [])
+
+        # callback assertions
+        cbtypes = [c[0] for c in self.callbacks]
+        cb_expect = [
+            'preImport',  # main import
+            'preBuildStateChange',  # building -> completed
+            'postBuildStateChange',
+            'preImport',    # rpm 1...
+            'postImport',
+            'preRPMSign',
+            'postRPMSign',
+            'postImport',   # finish main import
+            ]
+        self.assertEqual(cbtypes, cb_expect)
+
+        cb_idx = {}
+        for c in self.callbacks:
+            # no callbacks should use *args
+            self.assertEqual(c[1], ())
+            cbtype = c[0]
+            if 'type' in c[2]:
+                key = "%s:%s" % (cbtype, c[2]['type'])
+            else:
+                key = cbtype
+            cb_idx.setdefault(key, [])
+            cb_idx[key].append(c[2])
+        key_expect = ['preBuildStateChange', 'postBuildStateChange',
+                'preImport:build', 'postImport:build','preImport:rpm',
+                'postImport:rpm', 'preRPMSign', 'postRPMSign']
+        self.assertEqual(set(cb_idx.keys()), set(key_expect))
+        # in this case, pre and post data is similar
+        for key in ['preImport:build', 'postImport:build']:
+            callbacks = cb_idx[key]
+            self.assertEqual(len(callbacks), 1)
+            cbargs = cb_idx[key][0]
+            keys = sorted(cbargs.keys())
+            self.assertEqual(keys, ['brmap', 'build', 'build_id', 'logs',
+                    'rpms', 'srpm', 'task_id', 'type'])
+            self.assertEqual(cbargs['type'], 'build')
+            self.assertEqual(cbargs['srpm'], srpm)
+            self.assertEqual(cbargs['rpms'], rpms)
+        for key in ['preImport:rpm', 'postImport:rpm']:
+            callbacks = cb_idx[key]
+            self.assertEqual(len(callbacks), 1)
+            for cbargs in callbacks:
+                keys = set(cbargs.keys())
+                k_expect = set(['build', 'fileinfo', 'filepath', 'rpm', 'type'])
+                self.assertEqual(cbargs['type'], 'rpm')
+                self.assertEqual(cbargs['build'], buildinfo)
+                self.assertEqual(keys, k_expect)
+
+    def test_import_build_nonsrpm(self):
+        # not an srpm, should error
+        taskinfo = {'id': 42, 'start_ts': 1}
+        self.Task.return_value.getInfo.return_value = taskinfo
+        buildinfo = {'id': 37, 'name': 'mytestpkg', 'version': '1.1',
+                'epoch': 7, 'release': '10',
+                'state': koji.BUILD_STATES['BUILDING'],
+                'task_id': taskinfo['id'], 'source': None,
+                'volume_id': 0, 'volume_name': 'DEFAULT',
+                }
+        buildinfo['build_id'] = buildinfo['id']
+        self.get_build.return_value = buildinfo
+        srpm = self.filenames[0]
+        rpms = self.filenames[1:]
+
+        with self.assertRaises(koji.GenericError):
+            kojihub.import_build(srpm, rpms)
+            # TODO: check error msg
+
+        # we should just have one callback
+        self.assertEqual(len(self.callbacks), 1)
+        cb = self.callbacks[0]
+        # no callbacks should use *args
+        self.assertEqual(cb[1], ())
+        cbtype = cb[0]
+        self.assertEqual(cbtype, 'preImport')
+        cbargs = cb[2]
+        keys = sorted(cbargs.keys())
+        self.assertEqual(keys, ['brmap', 'build', 'build_id', 'logs',
+                'rpms', 'srpm', 'task_id', 'type'])
+        self.assertEqual(cbargs['type'], 'build')
+        self.assertEqual(cbargs['srpm'], srpm)
+        self.assertEqual(cbargs['rpms'], rpms)
+        self.new_build.assert_not_called()
+
     def test_import_build_callbacks_completed(self):
         taskinfo = {'id': 42, 'start_ts': 1}
         self.Task.return_value.getInfo.return_value = taskinfo
         buildinfo = {'id': 37, 'name': 'mytestpkg', 'version': '1.1',
                 'epoch': 7, 'release': '10',
                 'state': koji.BUILD_STATES['BUILDING'],
-                'task_id': taskinfo['id'], 'source': None}
+                'task_id': taskinfo['id'], 'source': None,
+                'volume_id': 0, 'volume_name': 'DEFAULT',
+                }
         buildinfo['build_id'] = buildinfo['id']
         self.get_build.return_value = buildinfo
         srpm = self.src_filename
@@ -404,3 +454,5 @@ class TestImportBuildCallbacks(unittest.TestCase):
                 self.assertEqual(cbargs['type'], 'rpm')
                 self.assertEqual(cbargs['build'], buildinfo)
                 self.assertEqual(keys, k_expect)
+
+        self.new_build.assert_not_called()

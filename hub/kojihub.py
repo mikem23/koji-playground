@@ -4856,7 +4856,7 @@ def new_build(data):
         name = data.get('name')
         if not name:
             raise koji.GenericError("No name or package id provided for build")
-        data['pkg_id'] = new_package(name, strict=False)
+        data['pkg_id'] = get_package_id(name, strict=False, create=True)
     for f in ('version', 'release', 'epoch'):
         if f not in data:
             raise koji.GenericError("No %s value for build" % f)
@@ -5114,6 +5114,7 @@ class RPMBuildImporter(object):
             update.execute()
             koji.plugin.run_callbacks('postBuildStateChange', attribute='state',
                     old=binfo['state'], new=st_complete, info=binfo)
+        self.buildinfo = binfo
         return binfo
 
     def import_rpms(self):
