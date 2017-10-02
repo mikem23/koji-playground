@@ -4658,6 +4658,8 @@ def list_channels(hostID=None):
     return _multiRow(query, locals(), fields)
 
 def new_package(name, strict=True):
+    '''Deprecated -- use lookup_package with create=True'''
+    logger.warning('new_package() is DEPRECATED')
     c = context.cnx.cursor()
     # TODO - table lock?
     # check for existing
