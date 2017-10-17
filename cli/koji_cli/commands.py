@@ -1313,10 +1313,8 @@ def handle_import_cg(goptions, session, args):
             if callback:
                 print('')
 
-    if volume:
-        # XXX really shouldn't have to build this path here
-        serverdir = "vol/%s/%s" % (volume, serverdir)
-    session.CGImport(metadata, serverdir)
+    # XXX new option will break old hubs
+    session.CGImport(metadata, serverdir, volume=volume)
 
 
 def handle_import_comps(goptions, session, args):
