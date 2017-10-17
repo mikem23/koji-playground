@@ -5199,6 +5199,13 @@ def cg_import(metadata, directory):
     return importer.do_import(metadata, directory)
 
 
+def cg_check_policy(metadata, directory):
+    """Check policy for given metadata"""
+
+    importer = CG_Importer()
+    return importer.check_policy(metadata, directory)
+
+
 class CG_Importer(object):
 
     def __init__(self):
@@ -5239,6 +5246,34 @@ class CG_Importer(object):
                                   directory=directory, build=self.buildinfo)
 
         return self.buildinfo
+
+
+    def check_policy(self, metadata, directory):
+        """Just check the metadata against policy without importing
+
+        For this call, only the metadata is required
+        Returns a dictionary:
+            {'volume': <volume policy result>}
+        Raise an exception if the cg policy results in denial
+        """
+
+        metadata = self.get_metadata(metadata, directory)
+        self.directory = directory
+
+        metaver = metadata['metadata_version']
+        if metaver != 0:
+            raise koji.GenericError("Unknown metadata version: %r" % metaver)
+
+        self.assert_cg_access()
+
+        # prepare data for import
+        self.prep_build()
+        self.prep_brs()
+        self.prep_outputs()
+
+        self.assert_policy()
+        volume = self.get_volume()
+        return {'volume': volume}
 
 
     def get_metadata(self, metadata, directory):
@@ -5296,7 +5331,7 @@ class CG_Importer(object):
         assert_policy('cg_import', policy_data)
 
 
-    def set_volume(self):
+    def get_volume(self):
         """Use policy to determine what the volume should be"""
         # we have to be careful and provide sufficient data
         policy_data = {
@@ -5307,6 +5342,12 @@ class CG_Importer(object):
                 'import_type': 'cg',
                 }
         vol = check_volume_policy(policy_data, strict=False)
+        return vol
+
+
+    def set_volume(self):
+        """Set the volume according to policy"""
+        vol = self.get_volume()
         if vol:
             self.buildinfo['volume_id'] = vol['id']
             self.buildinfo['volume_name'] = vol['name']
@@ -9088,6 +9129,7 @@ class RootExports(object):
         import_archive(fullpath, buildinfo, type, typeInfo)
 
     CGImport = staticmethod(cg_import)
+    CGCheckPolicy = staticmethod(cg_check_policy)
 
     untaggedBuilds = staticmethod(untagged_builds)
     tagHistory = staticmethod(tag_history)
