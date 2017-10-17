@@ -1290,6 +1290,10 @@ def handle_import_cg(goptions, session, args):
     if options.test:
         return
 
+    check = session.CGCheckPolicy(metadata, '')
+    print("Policy gave: %r" % check)  # XXX
+    volume = check.get('volume', {}).get('name')
+
     # get upload path
     # XXX - need a better way
     serverdir = _unique_path('cli-import')
@@ -1304,10 +1308,14 @@ def handle_import_cg(goptions, session, args):
             linked_upload(localpath, relpath)
         else:
             print("Uploading %s" % localpath)
-            session.uploadWrapper(localpath, relpath, callback=callback)
+            session.uploadWrapper(localpath, relpath, callback=callback,
+                            volume=volume)
             if callback:
                 print('')
 
+    if volume:
+        # XXX really shouldn't have to build this path here
+        serverdir = "vol/%s/%s" % (volume, serverdir)
     session.CGImport(metadata, serverdir)
 
 

@@ -5186,7 +5186,7 @@ def import_rpm(fn, buildinfo=None, brootid=None, wrapper=False, fileinfo=None):
     return rpminfo
 
 
-def cg_import(metadata, directory):
+def cg_import(metadata, directory, volume=None):
     """Import build from a content generator
 
     metadata can be one of the following
@@ -5196,7 +5196,7 @@ def cg_import(metadata, directory):
     """
 
     importer = CG_Importer()
-    return importer.do_import(metadata, directory)
+    return importer.do_import(metadata, directory, volume)
 
 
 def cg_check_policy(metadata, directory):
@@ -5212,10 +5212,14 @@ class CG_Importer(object):
         self.buildinfo = None
         self.metadata_only = False
 
-    def do_import(self, metadata, directory):
+    def do_import(self, metadata, directory, volume=None):
 
         metadata = self.get_metadata(metadata, directory)
         self.directory = directory
+        if volume:
+            # sanity check
+            lookup_name('volume', volume, strict=True)
+        self.volume = volume
 
         metaver = metadata['metadata_version']
         if metaver != 0:
@@ -5294,7 +5298,7 @@ class CG_Importer(object):
             raise koji.GenericError("Invalid metadata value: %r" % metadata)
         if metadata.endswith('.json'):
             # handle uploaded metadata
-            workdir = koji.pathinfo.work()
+            workdir = koji.pathinfo.work(volume=self.volume)
             path = os.path.join(workdir, directory, metadata)
             if not os.path.exists(path):
                 raise koji.GenericError("No such file: %s" % metadata)
@@ -5600,7 +5604,7 @@ class CG_Importer(object):
             fileinfo = fileinfo.copy()  # [!]
             if fileinfo.get('metadata_only', False):
                 self.metadata_only = True
-            workdir = koji.pathinfo.work()
+            workdir = koji.pathinfo.work(volume=self.volume)
             path = os.path.join(workdir, self.directory, fileinfo.get('relpath', ''), fileinfo['filename'])
             fileinfo['hub.path'] = path
             if fileinfo['buildroot_id'] not in self.br_prep:

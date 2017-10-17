@@ -2531,7 +2531,8 @@ class ClientSession(object):
             raise ActionNotAllowed('You must be logged in to upload files')
         if name is None:
             name = os.path.basename(localfile)
-        self.logger.debug("Fast upload: %s to %s/%s", localfile, path, name)
+        self.logger.debug("Fast upload: %s to %s/%s (volume=%s)", localfile,
+                        path, name, volume)
         fo = open(localfile, 'rb')
         ofs = 0
         size = os.path.getsize(localfile)
