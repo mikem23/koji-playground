@@ -5211,6 +5211,7 @@ class CG_Importer(object):
     def __init__(self):
         self.buildinfo = None
         self.metadata_only = False
+        self.volume = None
 
     def do_import(self, metadata, directory, volume=None):
 
