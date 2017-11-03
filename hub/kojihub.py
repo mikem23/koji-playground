@@ -510,7 +510,31 @@ def make_task(method, arglist, **opts):
             opts['owner'] = context.session.user_id
         opts['label'] = None
         opts['parent'] = None
-    #determine channel from policy
+
+    # pick channel from policy (modifies opts)
+    apply_channel_policy(method, arglist, opts)
+
+    # encode xmlrpc request
+    opts['request'] = koji.xmlrpcplus.dumps(tuple(arglist), methodname=method)
+    opts['state'] = koji.TASK_STATES['FREE']
+    opts['method'] = method
+    koji.plugin.run_callbacks('preTaskStateChange', attribute='state', old=None, new='FREE', info=opts)
+    # stick it in the database
+
+    idata = dslice(opts, ['state', 'owner', 'method', 'request', 'priority', 'parent', 'label', 'channel_id', 'arch'])
+    if opts.get('assign'):
+        idata['state'] = koji.TASK_STATES['ASSIGNED']
+        idata['host_id'] = opts['assign']
+    insert = InsertProcessor('task', data=idata)
+    insert.execute()
+    task_id = _singleValue("SELECT currval('task_id_seq')", strict=True)
+    opts['id'] = task_id
+    koji.plugin.run_callbacks('postTaskStateChange', attribute='state', old=None, new='FREE', info=opts)
+    return task_id
+
+
+def channel_policy_data(method, arglist, opts):
+    '''Build policy data for channel policy'''
     policy_data = {}
     policy_data['method'] = method
     for key in 'arch', 'parent', 'label', 'owner':
@@ -531,6 +555,35 @@ def make_task(method, arglist, **opts):
             policy_data['target'] = target['name']
         t_opts = args.get('opts', {})
         policy_data['scratch'] = t_opts.get('scratch', False)
+    elif method in ('livecd', 'livemedia', 'appliance'):
+        # these tasks created by buildImage call
+        argnames = ('name', 'version', 'arch', 'target', 'ksfile', 'opts')
+        args = koji.decode_args2(arglist, argnames)
+        target = get_build_target(args['target'], strict=True)
+        policy_data['target'] = target['name']
+        policy_data['scratch'] = args.get('opts', {}).get('scratch', False)
+    elif method == 'image':
+        # task created by buildImageOz
+        argnames = ('name', 'version', 'arches', 'target', 'inst_tree', 'opts')
+        args = koji.decode_args2(arglist, argnames)
+        target = get_build_target(args['target'], strict=True)
+        policy_data['target'] = target['name']
+        policy_data['scratch'] = args.get('opts', {}).get('scratch', False)
+    elif method == 'indirectionimage':
+        # task created by buildImageIndirection
+        # arglist = opts
+        args = koji.decode_args2(arglist, ('opts',))
+        t_opts = args.get('opts', {})
+        target = get_build_target(args['target'], strict=True)
+        policy_data['target'] = target['name']
+        policy_data['scratch'] = args.get('opts', {}).get('scratch', False)
+
+    return policy_data
+
+
+def apply_channel_policy(method, arglist, opts):
+    '''determine channel for task from policy'''
+    policy_data = channel_policy_data(method, arglist, opts)
     ruleset = context.policy.get('channel')
     result = ruleset.apply(policy_data)
     if result is None:
@@ -560,23 +613,6 @@ def make_task(method, arglist, **opts):
             logger.error("Invalid result from channel policy: %s", ruleset.last_rule())
             raise koji.GenericError("invalid channel policy")
 
-    # encode xmlrpc request
-    opts['request'] = koji.xmlrpcplus.dumps(tuple(arglist), methodname=method)
-    opts['state'] = koji.TASK_STATES['FREE']
-    opts['method'] = method
-    koji.plugin.run_callbacks('preTaskStateChange', attribute='state', old=None, new='FREE', info=opts)
-    # stick it in the database
-
-    idata = dslice(opts, ['state', 'owner', 'method', 'request', 'priority', 'parent', 'label', 'channel_id', 'arch'])
-    if opts.get('assign'):
-        idata['state'] = koji.TASK_STATES['ASSIGNED']
-        idata['host_id'] = opts['assign']
-    insert = InsertProcessor('task', data=idata)
-    insert.execute()
-    task_id = _singleValue("SELECT currval('task_id_seq')", strict=True)
-    opts['id'] = task_id
-    koji.plugin.run_callbacks('postTaskStateChange', attribute='state', old=None, new='FREE', info=opts)
-    return task_id
 
 def eventCondition(event, table=None):
     """return the proper WHERE condition to select data at the time specified by event. """
