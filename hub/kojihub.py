@@ -542,7 +542,6 @@ def channel_policy_data(method, arglist, opts):
     policy_data['user_id'] = opts['owner']
     if 'channel' in opts:
         policy_data['req_channel'] = opts['channel']
-        req_channel_id = get_channel_id(opts['channel'], strict=True)
     if method == 'build':
         # arglist = source, target, [opts]
         args = koji.decode_args2(arglist, ('source', 'target', 'opts'))
@@ -574,9 +573,9 @@ def channel_policy_data(method, arglist, opts):
         # arglist = opts
         args = koji.decode_args2(arglist, ('opts',))
         t_opts = args.get('opts', {})
-        target = get_build_target(args['target'], strict=True)
+        target = get_build_target(t_opts['target'], strict=True)
         policy_data['target'] = target['name']
-        policy_data['scratch'] = args.get('opts', {}).get('scratch', False)
+        policy_data['scratch'] = t_opts.get('scratch', False)
 
     return policy_data
 
@@ -605,7 +604,7 @@ def apply_channel_policy(method, arglist, opts):
                     logger.error('Invalid channel policy result (no channel requested): %s',
                                     ruleset.last_rule())
                     raise koji.GenericError("invalid channel policy")
-                opts['channel_id'] = req_channel_id
+                opts['channel_id'] = get_channel_id(opts['channel'], strict=True)
             else:
                 logger.error("Invalid result from channel policy: %s", ruleset.last_rule())
                 raise koji.GenericError("invalid channel policy")
