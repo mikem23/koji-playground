@@ -485,6 +485,7 @@ def make_task(method, arglist, **opts):
         priority: the priority of the task
         assign: a host_id to assign the task to
     """
+    pdata = None
     if 'parent' in opts:
         # for subtasks, we use some of the parent's options as defaults
         fields = ('state', 'owner', 'channel_id', 'priority', 'arch')
@@ -512,7 +513,7 @@ def make_task(method, arglist, **opts):
         opts['parent'] = None
 
     # pick channel from policy (modifies opts)
-    apply_channel_policy(method, arglist, opts)
+    apply_channel_policy(method, arglist, opts, pdata)
 
     # encode xmlrpc request
     opts['request'] = koji.xmlrpcplus.dumps(tuple(arglist), methodname=method)
@@ -580,7 +581,7 @@ def channel_policy_data(method, arglist, opts):
     return policy_data
 
 
-def apply_channel_policy(method, arglist, opts):
+def apply_channel_policy(method, arglist, opts, pdata):
     '''determine channel for task from policy'''
     policy_data = channel_policy_data(method, arglist, opts)
     ruleset = context.policy.get('channel')
