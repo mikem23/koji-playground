@@ -182,6 +182,10 @@ class TestApplyChannelPolicy(unittest.TestCase):
         self.assertEqual(ret, None)
         self.assertEqual(opts['channel_id'], mock.sentinel.channel_id)
         self.get_channel_id.assert_not_called()
+        # without parent should raise an error
+        del opts['parent']
+        with self.assertRaises(koji.GenericError):
+            kojihub.apply_channel_policy('method', [], opts, None)
 
     def test_channel_policy_req(self):
         opts = {'channel': 'foo'}
@@ -191,3 +195,26 @@ class TestApplyChannelPolicy(unittest.TestCase):
         self.assertEqual(ret, None)
         self.assertEqual(opts['channel_id'], mock.sentinel.channel_id)
         self.get_channel_id.assert_called_with('foo', strict=True)
+        # without channel should raise error
+        del opts['channel']
+        with self.assertRaises(koji.GenericError):
+            kojihub.apply_channel_policy('method', [], opts, None)
+
+    def test_channel_policy_badaction(self):
+        opts = {}
+        self.ruleset.apply.return_value = 'nosuchaction'
+        with self.assertRaises(koji.GenericError):
+            kojihub.apply_channel_policy('method', [], opts, None)
+        # use action require an arg
+        self.ruleset.apply.return_value = 'use'
+        with self.assertRaises(koji.GenericError):
+            kojihub.apply_channel_policy('method', [], opts, None)
+
+    def test_channel_policy_nomatch(self):
+        opts = {}
+        self.ruleset.apply.return_value = None
+        self.get_channel_id.return_value = mock.sentinel.channel_id
+        ret = kojihub.apply_channel_policy('method', [], opts, None)
+        self.assertEqual(ret, None)
+        self.assertEqual(opts['channel_id'], mock.sentinel.channel_id, None)
+        self.get_channel_id.assert_called_with('default', strict=True)
