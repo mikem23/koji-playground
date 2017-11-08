@@ -169,24 +169,25 @@ class TestApplyChannelPolicy(unittest.TestCase):
         opts = {}
         self.ruleset.apply.return_value = 'use image'
         self.get_channel_id.return_value = mock.sentinel.channel_id
-        ret = kojihub.apply_channel_policy('method', [], opts)
+        ret = kojihub.apply_channel_policy('method', [], opts, None)
         self.assertEqual(ret, None)
-        self.assertEqual(opts['channel_id'], mock.sentinel.channel_id)
+        self.assertEqual(opts['channel_id'], mock.sentinel.channel_id, None)
         self.get_channel_id.assert_called_with('image', strict=True)
 
     def test_channel_policy_parent(self):
         opts = {'parent': 99}
+        pdata = {'channel_id': mock.sentinel.channel_id}
         self.ruleset.apply.return_value = 'parent'
-        self.get_channel_id.return_value = mock.sentinel.channel_id
-        ret = kojihub.apply_channel_policy('method', [], opts)
+        ret = kojihub.apply_channel_policy('method', [], opts, pdata)
         self.assertEqual(ret, None)
         self.assertEqual(opts['channel_id'], mock.sentinel.channel_id)
+        self.get_channel_id.assert_not_called()
 
     def test_channel_policy_req(self):
         opts = {'channel': 'foo'}
         self.ruleset.apply.return_value = 'req'
         self.get_channel_id.return_value = mock.sentinel.channel_id
-        ret = kojihub.apply_channel_policy('method', [], opts)
+        ret = kojihub.apply_channel_policy('method', [], opts, None)
         self.assertEqual(ret, None)
         self.assertEqual(opts['channel_id'], mock.sentinel.channel_id)
         self.get_channel_id.assert_called_with('foo', strict=True)
