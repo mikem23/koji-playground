@@ -1791,17 +1791,36 @@ def _grp_pkg_unblock(taginfo, grpinfo, pkg_name):
     table = 'group_package_listing'
     tag_id = get_tag_id(taginfo, strict=True)
     grp_id = get_group_id(grpinfo, strict=True)
-    clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s', 'package = %(pkg_name)s')
-    query = QueryProcessor(columns=['blocked'], tables=[table],
-                           clauses=('active = TRUE',)+clauses,
-                           values=locals(), opts={'rowlock':True})
-    blocked = query.singleValue(strict=False)
-    if not blocked:
-        raise koji.GenericError("package %s is NOT blocked in group %s, tag %s" \
-                    % (pkg_name, grp_id, tag_id))
-    update = UpdateProcessor('group_package_listing', values=locals(), clauses=clauses)
-    update.make_revoke()
-    update.execute()
+
+    # make sure there is something we can unblock
+    groups = get_tag_groups(tag_id, inherit=True, incl_pkgs=True,
+                            incl_reqs=False)
+    grp_cfg = groups.get(grp_id, None)
+    if grp_cfg is None:
+        raise koji.GenericError('Group %s is not in tag %s'
+                                % (grpinfo, taginfo))
+    if grp_cfg['blocked']:
+        raise koji.GenericError('Group %s is blocked in tag %s'
+                                % (grpinfo, taginfo))
+    previous = grp_cfg['packagelist'].get(pkg_name, None)
+    if previous is None or not previous['blocked']:
+        raise koji.GenericError('Package %s not blocked in group %s, tag%s'
+                                % (pkg_name, grpinfo, taginfo))
+
+    # do the unblock
+    if previous['tag_id'] != tag_id:
+        # our block is inherited
+        # unblock by adding a normal entry
+        _grp_pkg_add(tag_id, grp_id, pkg_name, block=False, force=False,
+                     **previous)
+    else:
+        # our block is direct, so just remove it
+        clauses = ('group_id=%(grp_id)s', 'tag_id=%(tag_id)s',
+                   'package = %(pkg_name)s')
+        update = UpdateProcessor('group_package_listing', values=locals(),
+                                 clauses=clauses)
+        update.make_revoke()
+        update.execute()
 
 
 # tag-group-req operations
