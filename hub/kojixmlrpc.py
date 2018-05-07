@@ -728,6 +728,8 @@ def application(environ, start_response):
                 response = h._wrap_handler(h.handle_upload, environ)
             else:
                 response = h._wrap_handler(h.handle_rpc, environ)
+            if six.PY3:
+                response = response.encode()
             headers = [
                 ('Content-Length', str(len(response))),
                 ('Content-Type', "text/xml"),
