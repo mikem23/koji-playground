@@ -120,7 +120,7 @@ Requires: %{name} = %{version}-%{release}
 Plugins to the koji command-line interface
 %endif
 
-%package hub
+%package -n python2-%{name}-hub
 Summary: Koji XMLRPC interface
 Group: Applications/Internet
 License: LGPLv2 and GPLv2
@@ -134,24 +134,65 @@ Requires: python-psycopg2
 Requires: %{name} = %{version}-%{release}
 # we need the python2 lib here
 Requires: python2-%{name} = %{version}-%{release}
+# py2 xor py3
+Conflicts: python{%python3_pkgversion}-%{name}-hub
 
-%description hub
+%description -n python2-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
 
-%package hub-plugins
+%if 0%{with python3}
+%package -n python%{python3_pkgversion}-%{name}-hub
+Summary: Koji XMLRPC interface
+Group: Applications/Internet
+License: LGPLv2 and GPLv2
+# rpmdiff lib (from rpmlint) is GPLv2 (only)
+Requires: httpd
+Requires: mod_wsgi
+%if 0%{?fedora} >= 21 || 0%{?rhel} >= 7
+Requires: mod_auth_gssapi
+%endif
+Requires: python-psycopg2
+Requires: %{name} = %{version}-%{release}
+# we need the python2 lib here
+Requires: python%{python3_pkgversion}-%{name} = %{version}-%{release}
+# py2 xor py3
+Conflicts: python2-%{name}-hub
+
+%description -n python%{python3_pkgversion}-%{name}-hub
+koji-hub is the XMLRPC interface to the koji database
+%endif
+
+%package -n python2-%{name}-hub-plugins
 Summary: Koji hub plugins
 Group: Applications/Internet
 License: LGPLv2
 Requires: %{name} = %{version}-%{release}
 Requires: %{name}-hub = %{version}-%{release}
 Requires: python-qpid >= 0.7
-%if 0%{?rhel} >= 6
+%if 0%{?fedora} >= 27 || 0%{?rhel} >= 6
 Requires: python-qpid-proton
 %endif
 Requires: cpio
 
-%description hub-plugins
+%description -n python2-%{name}-hub-plugins
 Plugins to the koji XMLRPC interface
+
+%if 0%{with python3}
+%package -n python%{python3_pkgversion}-%{name}-hub-plugins
+Summary: Koji hub plugins
+Group: Applications/Internet
+License: LGPLv2
+Requires: %{name} = %{version}-%{release}
+Requires: %{name}-hub = %{version}-%{release}
+Requires: python-qpid >= 0.7
+%if 0%{?fedora} >= 27 ||  0%{?rhel} >= 6
+Requires: python%{python3_pkgversion}-qpid-proton
+%endif
+Requires: cpio
+
+%description -n python%{python3_pkgversion}-%{name}-hub-plugins
+Plugins to the koji XMLRPC interface
+%endif
 
 %package builder-plugins
 Summary: Koji builder plugins
@@ -317,7 +358,7 @@ rm -rf $RPM_BUILD_ROOT
 #%%config(noreplace) %%{_sysconfdir}/koji/plugins/*.conf
 %endif
 
-%files hub
+%files -n python2-%{name}-hub
 %defattr(-,root,root)
 %{_datadir}/koji-hub
 %dir %{_libexecdir}/koji-hub
@@ -326,12 +367,33 @@ rm -rf $RPM_BUILD_ROOT
 %config(noreplace) /etc/koji-hub/hub.conf
 %dir /etc/koji-hub/hub.conf.d
 
-%files hub-plugins
+%if 0%{with python3}
+%files -n python%{python3_pkgversion}-%{name}-hub
+%defattr(-,root,root)
+%{_datadir}/koji-hub
+%dir %{_libexecdir}/koji-hub
+%{_libexecdir}/koji-hub/rpmdiff
+%config(noreplace) /etc/httpd/conf.d/kojihub.conf
+%dir /etc/koji-hub
+%config(noreplace) /etc/koji-hub/hub.conf
+%dir /etc/koji-hub/hub.conf.d
+%endif
+
+%files -n python2-%{name}-hub-plugins
 %defattr(-,root,root)
 %dir %{_prefix}/lib/koji-hub-plugins
 %{_prefix}/lib/koji-hub-plugins/*.py*
 %dir /etc/koji-hub/plugins
 %config(noreplace) /etc/koji-hub/plugins/*.conf
+
+%if 0%{with python3}
+%files -n python%{python3_pkgversion}-%{name}-hub-plugins
+%defattr(-,root,root)
+%dir %{_prefix}/lib/koji-hub-plugins
+%{_prefix}/lib/koji-hub-plugins/*.py*
+%dir /etc/koji-hub/plugins
+%config(noreplace) /etc/koji-hub/plugins/*.conf
+%endif
 
 %files builder-plugins
 %defattr(-,root,root)
