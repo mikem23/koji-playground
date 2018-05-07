@@ -29,10 +29,10 @@ try:
 except ImportError:
     krbV = None
 import koji
-import urlparse      #for parse_qs
 from .context import context
 from six.moves import range
 from six.moves import zip
+from six.moves.urllib.parse import parse_qs
 import six
 from .util import to_list
 
@@ -83,7 +83,7 @@ class Session(object):
             if not args:
                 self.message = 'no session args'
                 return
-            args = urlparse.parse_qs(args, strict_parsing=True)
+            args = parse_qs(args, strict_parsing=True)
         hostip = self.get_remote_ip(override=hostip)
         try:
             id = int(args['session-id'][0])
