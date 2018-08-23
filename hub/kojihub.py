@@ -3330,7 +3330,7 @@ def edit_external_repo(info, name=None, url=None, merge_mode=None):
             # Ensure the url always ends with /
             url += '/'
         changes['url'] = url
-    if merge_mode is not None
+    if merge_mode is not None:
         if merge_mode not in koji.REPO_MERGE_MODES:
             raise koji.GenericError('Invalid merge mode: %s' % merge_mode)
         if merge_mode != repo['merge_mode']:
