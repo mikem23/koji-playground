@@ -5173,8 +5173,8 @@ def anon_handle_list_external_repos(goptions, session, args):
     #  2) Listing repo data for a tag (priority, name, url)
     #  3) Listing repo data for multiple tags (tag, priority, name, url)
     if format == "basic":
-        format = "%(name)-25s %(merge_mode)-10s %(url)s"
-        header1 = "%-25s %-10s URL" % ("External repo name", "Mode")
+        format = "%(name)-25s %(url)s"
+        header1 = "%-25s %s" % ("External repo name", "URL")
         header2 = "%s %s %s" % ("-"*25, "-"*40, "-"*20)
     elif format == "tag":
         format = "%(priority)-3i %(external_repo_name)-25s %(merge_mode)-10s %(url)s"
