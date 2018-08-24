@@ -5098,8 +5098,22 @@ class CreaterepoTask(BaseTaskHandler):
                     % parseStatus(status, ' '.join(cmd)))
 
     def merge_repos(self, external_repos, arch, groupdata):
-        repos = []
-        localdir = '%s/repo_%s_premerge' % (self.workdir, self.repo_id)
+        # group repos by merge type
+        repos_by_mode = {}
+        for repo in external_repos:
+            repos_by_mode.setdefault(
+                    repo.get('merge_mode', 'koji'), []).append(repo)
+
+        for merge_mode in 'koji', 'simple':
+            # 
+            if merge_mode in repos_by_mode:
+                repos = repos_by_mode['koji']
+                self.do_repo_merge(merge_mode, repos, arch, groupdata)
+
+    def do_repo_merge(self, merge_mode, repos, arch, groupdata):
+        if merge_mode == 'koji':
+            localdir = '%s/repo_%s_premerge' % (self.workdir, self.repo_id)
+        else
         os.rename(self.outdir, localdir)
         koji.ensuredir(self.outdir)
         repos.append('file://' + localdir + '/')
