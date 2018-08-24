@@ -3320,15 +3320,6 @@ def edit_external_repo(info, name=None, url=None):
     repo = get_external_repo(info, strict=True)
     repo_id = repo['id']
 
-    # check repo changes
-    changes = {}
-    if url and url != repo['url']:
-        if not url.endswith('/'):
-            # Ensure the url always ends with /
-            url += '/'
-        changes['url'] = url
-
-    # deal with renames
     if name and name != repo['name']:
         existing_id = _singleValue("""SELECT id FROM external_repo WHERE name = %(name)s""",
                                    locals(), strict=False)
@@ -3338,17 +3329,17 @@ def edit_external_repo(info, name=None, url=None):
         rename = """UPDATE external_repo SET name = %(name)s WHERE id = %(repo_id)i"""
         _dml(rename, locals())
 
-    # apply changes
-    if changes:
+    if url and url != repo['url']:
+        if not url.endswith('/'):
+            # Ensure the url always ends with /
+            url += '/'
+
         update = UpdateProcessor('external_repo_config', values=locals(),
                     clauses=['external_repo_id = %(repo_id)i'])
         update.make_revoke()
 
-        data = dslice(repo, ['url'])
-        data['external_repo_id'] = repo['id']
-        data.update(changes)
         insert = InsertProcessor('external_repo_config')
-        insert.set(**data)
+        insert.set(external_repo_id=repo_id, url=url)
         insert.make_create()
 
         update.execute()
