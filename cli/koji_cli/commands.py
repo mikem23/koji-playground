@@ -5175,7 +5175,7 @@ def anon_handle_list_external_repos(goptions, session, args):
     if format == "basic":
         format = "%(name)-25s %(url)s"
         header1 = "%-25s %s" % ("External repo name", "URL")
-        header2 = "%s %s %s" % ("-"*25, "-"*40)
+        header2 = "%s %s" % ("-"*25, "-"*40)
     elif format == "tag":
         format = "%(priority)-3i %(external_repo_name)-25s %(merge_mode)-10s %(url)s"
         header1 = "%-3s %-25s %-10s URL" % ("Pri", "External repo name", "Mode")
