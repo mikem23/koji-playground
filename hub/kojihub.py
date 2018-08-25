@@ -9189,10 +9189,11 @@ class RootExports(object):
     editExternalRepo = staticmethod(edit_external_repo)
     deleteExternalRepo = staticmethod(delete_external_repo)
 
-    def addExternalRepoToTag(self, tag_info, repo_info, priority):
+    def addExternalRepoToTag(self, tag_info, repo_info, priority,
+                merge_mode='koji'):
         """Add an external repo to a tag"""
         # wrap the local method so we don't expose the event parameter
-        add_external_repo_to_tag(tag_info, repo_info, priority)
+        add_external_repo_to_tag(tag_info, repo_info, priority, merge_mode)
 
     def removeExternalRepoFromTag(self, tag_info, repo_info):
         """Remove an external repo from a tag"""
