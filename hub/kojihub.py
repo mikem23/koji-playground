@@ -3362,10 +3362,13 @@ def delete_external_repo(info):
     update.make_revoke()
     update.execute()
 
-def add_external_repo_to_tag(tag_info, repo_info, priority):
+def add_external_repo_to_tag(tag_info, repo_info, priority, merge_mode='koji'):
     """Add an external repo to a tag"""
 
     context.session.assertPerm('admin')
+
+    if merge_mode not in koji.REPO_MERGE_MODES:
+        raise koji.GenericError('Invalid merge mode: %s' % merge_mode)
 
     tag = get_tag(tag_info, strict=True)
     tag_id = tag['id']
@@ -3381,7 +3384,8 @@ def add_external_repo_to_tag(tag_info, repo_info, priority):
             (tag['name'], priority))
 
     insert = InsertProcessor('tag_external_repos')
-    insert.set(tag_id=tag_id, external_repo_id=repo_id, priority=priority)
+    insert.set(tag_id=tag_id, external_repo_id=repo_id, priority=priority,
+               merge_mode=merge_mode)
     insert.make_create()
     insert.execute()
 

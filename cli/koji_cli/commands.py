@@ -5235,6 +5235,8 @@ def handle_add_external_repo(goptions, session, args):
     if options.mode:
         if options.mode not in koji.REPO_MERGE_MODES:
             parser.error('Invalid mode: %s' % options.mode)
+        if not options.tag:
+            parser.error('The --mode option can only be used with --tag')
     if len(args) == 1:
         name = args[0]
         rinfo = session.getExternalRepo(name, strict=True)
@@ -5242,10 +5244,7 @@ def handle_add_external_repo(goptions, session, args):
             parser.error(_("A url is required to create an external repo entry"))
     elif len(args) == 2:
         name, url = args
-        callopts = {}
-        if options.mode:
-            callopts['merge_mode'] = options.mode
-        rinfo = session.createExternalRepo(name, url, **callopts)
+        rinfo = session.createExternalRepo(name, url)
         print("Created external repo %(id)i" % rinfo)
     else:
         parser.error(_("Incorrect number of arguments"))
@@ -5258,7 +5257,10 @@ def handle_add_external_repo(goptions, session, args):
                     priority = options.priority
                 else:
                     priority = _pick_external_repo_priority(session, tag)
-            session.addExternalRepoToTag(tag, rinfo['name'], priority)
+            callopts = {}
+            if options.mode:
+                callopts['merge_mode'] = options.mode
+            session.addExternalRepoToTag(tag, rinfo['name'], priority, **callopts)
             print("Added external repo %s to tag %s (priority %i)" \
                     % (rinfo['name'], tag, priority))
 
