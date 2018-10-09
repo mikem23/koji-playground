@@ -7,6 +7,13 @@
 %bcond_with python3
 %endif
 
+# don't build py2 packages for py3-only systems
+%if 0%{with python3} && (0%{?fedora} > 26 || 0%{?rhel} > 7)
+    %define with_python2 0
+%else
+    %define with_python2 1
+%endif
+
 # Compatibility with RHEL. These macros have been added to EPEL but
 # not yet to RHEL proper.
 # https://bugzilla.redhat.com/show_bug.cgi?id=1307190
@@ -58,6 +65,7 @@ BuildRequires: pkgconfig
 Koji is a system for building and tracking RPMS.  The base package
 contains shared libraries and the command-line interface.
 
+%if 0%{with_python2}
 %package -n python2-%{name}
 Summary: Build system tools python library
 %{?python_provide:%python_provide python2-%{name}}
@@ -79,6 +87,7 @@ Requires: python-six
 
 %description -n python2-%{name}
 desc
+%endif
 
 %if 0%{with python3}
 %package -n python%{python3_pkgversion}-%{name}
@@ -100,6 +109,7 @@ Requires: python%{python3_pkgversion}-six
 desc
 %endif
 
+%if 0%{with_python2}
 %package -n python2-%{name}-cli-plugins
 Summary: Koji client plugins
 Group: Applications/Internet
@@ -108,6 +118,7 @@ Requires: %{name} = %{version}-%{release}
 
 %description -n python2-%{name}-cli-plugins
 Plugins to the koji command-line interface
+%endif
 
 %if 0%{with python3}
 %package -n python%{python3_pkgversion}-%{name}-cli-plugins
@@ -240,6 +251,7 @@ Requires(postun): systemd
 %description utils
 Utilities for the Koji system
 
+%if 0%{with_python2}
 %package -n python2-%{name}-web
 Summary: Koji Web UI
 Group: Applications/Internet
@@ -257,9 +269,11 @@ Requires: python-psycopg2
 Requires: python-cheetah
 # we need the python2 lib here
 Requires: python2-%{name} = %{version}-%{release}
+Provides: koji-web
 
 %description -n python2-%{name}-web
 koji-web is a web UI to the Koji system.
+%endif
 
 %if 0%{with python3}
 %package -n python%{python3_pkgversion}-%{name}-web
@@ -274,8 +288,9 @@ Requires: python%{python3_pkgversion}-psycopg2
 Requires: python%{python3_pkgversion}-cheetah
 # we need the python3 lib here
 Requires: python%{python3_pkgversion}-%{name} = %{version}-%{release}
-# for now it has to be in conflict with python2 hub
+# for now it has to be in conflict with python2 hub (later change to python2-koji-hub)
 Conflicts: koji-hub
+Provides: koji-web
 
 %description -n python%{python3_pkgversion}-%{name}-web
 koji-web is a web UI to the Koji system.
@@ -288,14 +303,15 @@ koji-web is a web UI to the Koji system.
 
 %install
 rm -rf $RPM_BUILD_ROOT
+%if 0%{with_python2}
 make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python2} %{?install_opt} install
+%endif
 %if 0%{with python3}
-cd koji
-make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
-cd ../cli
-make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
-cd ../plugins
-make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
+for d in koji cli plugins www ; do
+    pushd $d
+    make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
+    popd
+done
 # alter python interpreter in koji CLI
 sed -i 's/\#\!\/usr\/bin\/python2/\#\!\/usr\/bin\/python3/' $RPM_BUILD_ROOT/usr/bin/koji
 %endif
@@ -310,10 +326,12 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/koji.conf.d
 %doc docs Authors COPYING LGPL
 
+%if 0%{with_python2}
 %files -n python2-%{name}
 %defattr(-,root,root)
 %{python2_sitelib}/%{name}
 %{python2_sitelib}/koji_cli
+%endif
 
 %if 0%{with python3}
 %files -n python%{python3_pkgversion}-koji
@@ -321,12 +339,14 @@ rm -rf $RPM_BUILD_ROOT
 %{python3_sitelib}/koji_cli
 %endif
 
+%if 0%{with_python2}
 %files -n python2-%{name}-cli-plugins
 %defattr(-,root,root)
 %{python2_sitelib}/koji_cli_plugins
 # we don't have config files for default plugins yet
 #%%dir %%{_sysconfdir}/koji/plugins
 #%%config(noreplace) %%{_sysconfdir}/koji/plugins/*.conf
+%endif
 
 %if 0%{with python3}
 %files -n python%{python3_pkgversion}-%{name}-cli-plugins
@@ -337,6 +357,7 @@ rm -rf $RPM_BUILD_ROOT
 #%%config(noreplace) %%{_sysconfdir}/koji/plugins/*.conf
 %endif
 
+%if 0%{with_python2}
 %files hub
 %defattr(-,root,root)
 %{_datadir}/koji-hub
@@ -345,21 +366,27 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/koji-hub
 %config(noreplace) /etc/koji-hub/hub.conf
 %dir /etc/koji-hub/hub.conf.d
+%endif
 
+%if 0%{with_python2}
 %files hub-plugins
 %defattr(-,root,root)
 %dir %{_prefix}/lib/koji-hub-plugins
 %{_prefix}/lib/koji-hub-plugins/*.py*
 %dir /etc/koji-hub/plugins
 %config(noreplace) /etc/koji-hub/plugins/*.conf
+%endif
 
+%if 0%{with_python2}
 %files builder-plugins
 %defattr(-,root,root)
 %dir /etc/kojid/plugins
 %config(noreplace) /etc/kojid/plugins/*.conf
 %dir %{_prefix}/lib/koji-builder-plugins
 %{_prefix}/lib/koji-builder-plugins/*.py*
+%endif
 
+%if 0%{with_python2}
 %files utils
 %defattr(-,root,root)
 %{_sbindir}/kojira
@@ -377,7 +404,9 @@ rm -rf $RPM_BUILD_ROOT
 %{_sbindir}/koji-shadow
 %dir /etc/koji-shadow
 %config(noreplace) /etc/koji-shadow/koji-shadow.conf
+%endif
 
+%if 0%{with_python2}
 %files -n python2-%{name}-web
 %defattr(-,root,root)
 %{_datadir}/koji-web
@@ -385,6 +414,7 @@ rm -rf $RPM_BUILD_ROOT
 %config(noreplace) /etc/kojiweb/web.conf
 %config(noreplace) /etc/httpd/conf.d/kojiweb.conf
 %dir /etc/kojiweb/web.conf.d
+%endif
 
 %if 0%{with python3}
 %files -n python%{python3_pkgversion}-%{name}-web
@@ -396,6 +426,7 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/kojiweb/web.conf.d
 %endif
 
+%if 0%{with_python2}
 %files builder
 %defattr(-,root,root)
 %{_sbindir}/kojid
@@ -436,7 +467,9 @@ if [ $1 = 0 ]; then
   /sbin/chkconfig --del kojid
 fi
 %endif
+%endif
 
+%if 0%{with_python2}
 %files vm
 %defattr(-,root,root)
 %{_sbindir}/kojivmd
@@ -494,6 +527,7 @@ if [ $1 = 0 ]; then
   /sbin/service kojira stop &> /dev/null || :
   /sbin/chkconfig --del kojira
 fi
+%endif
 %endif
 
 %changelog
