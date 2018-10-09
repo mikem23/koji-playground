@@ -136,6 +136,7 @@ Requires: %{name} = %{version}-%{release}
 Requires: python2-%{name} = %{version}-%{release}
 # py2 xor py3
 Conflicts: python{%python3_pkgversion}-%{name}-hub
+Provides: koji-hub
 
 %description -n python2-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
@@ -157,6 +158,7 @@ Requires: %{name} = %{version}-%{release}
 Requires: python%{python3_pkgversion}-%{name} = %{version}-%{release}
 # py2 xor py3
 Conflicts: python2-%{name}-hub
+Provides: koji-hub
 
 %description -n python%{python3_pkgversion}-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
