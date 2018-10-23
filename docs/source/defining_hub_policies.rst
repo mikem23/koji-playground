@@ -179,6 +179,9 @@ Available tests
 ``package``
     * Matches its arguments against the package name. Accepts glob patterns.
 
+``nvr``
+    * Matches its arguments against the build NVR. Accepts glob patterns.
+
 ``tag``
     * matches its arguments against the tag name. Accepts glob patterns.
     * for move operations, the tag name tested is the destination tag (see

@@ -8300,6 +8300,16 @@ def policy_get_pkg(data):
     #else
     raise koji.GenericError("policy requires package data")
 
+def policy_get_build(data):
+    """Determine build from policy data
+
+    returns dict as get_build
+    """
+    if 'build' in data:
+        return get_build(data['build'], strict=True)
+    #else
+    raise koji.GenericError("policy requires build data")
+
 
 def policy_get_brs(data):
     """Determine content generators from policy data"""
@@ -8372,6 +8382,15 @@ class PackageTest(koji.policy.MatchTest):
         #we need to find the package name from the base data
         data[self.field] = policy_get_pkg(data)['name']
         return super(PackageTest, self).run(data)
+
+class NvrTest(koji.policy.MatchTest):
+    """Checks build NVR against glob patterns"""
+    name = 'nvr'
+    field = '_nvr'
+    def run(self, data):
+        #we need to find the build NVR from the base data
+        data[self.field] = policy_get_build(data)['nvr']
+        return super(NvrTest, self).run(data)
 
 class VolumeTest(koji.policy.MatchTest):
     """Checks storage volume against glob patterns"""

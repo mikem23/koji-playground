@@ -24,6 +24,14 @@ class TestBasicTests(unittest.TestCase):
         policy_get_pkg.return_value = {'name': 'foobar'}
         self.assertTrue(obj.run({}))
 
+    @mock.patch('kojihub.policy_get_build')
+    def test_nvr_test(self, policy_get_build):
+        obj = kojihub.NvrTest('nvr *bar')
+        policy_get_build.return_value = {'nvr': 'mypackage-bar-xyzzy'}
+        self.assertFalse(obj.run({}))
+        policy_get_build.return_value = {'nvr': 'pkg-foo-bar'}
+        self.assertTrue(obj.run({}))
+
     @mock.patch('kojihub.policy_get_pkg')
     def test_new_package_test(self, policy_get_pkg):
         obj = kojihub.NewPackageTest('is_new_package')
