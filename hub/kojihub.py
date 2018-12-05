@@ -4597,13 +4597,15 @@ def get_archive_type(filename=None, type_name=None, type_id=None, strict=False):
         raise koji.GenericError, 'one of filename, type_name, or type_id must be specified'
 
     parts = filename.split('.')
-
+    query = QueryProcessor(
+            tables=['archivetypes'],
+            columns=['id', 'name', 'description', 'extensions'],
+            clauses=['extensions ~* %(pattern)s'],
+            )
     for start in range(len(parts)-1, -1, -1):
         ext = '.'.join(parts[start:])
-
-        select = r"""SELECT id, name, description, extensions FROM archivetypes
-                      WHERE extensions ~ E'\\m%s\\M'""" % ext
-        results = _multiRow(select, locals(), ('id', 'name', 'description', 'extensions'))
+        query.values['pattern'] = r'(\s|^)%s(\s|$)' % ext
+        results = query.execute()
 
         if len(results) == 1:
             return results[0]
