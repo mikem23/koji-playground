@@ -3596,8 +3596,10 @@ def list_archives(buildID=None, buildrootID=None, componentBuildrootID=None, hos
                     val = typeInfo[key]
                     if not isinstance(val, (list, tuple)):
                         val = [val]
-                    for v in val:
-                        clauses.append(r"""%s ~ E'\\m%s\\M'""" % (key, v))
+                    for i, v in enumerate(val):
+                        pkey = '%s_pattern_%i' % (key, i)
+                        values[pkey] = r'\m%s\M' % v
+                        clauses.append('%s ~ %%(%s)s' % (key, pkey))
     else:
         raise koji.GenericError, 'unsupported archive type: %s' % type
 
