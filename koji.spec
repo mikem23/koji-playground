@@ -120,6 +120,17 @@ Requires: %{name} = %{version}-%{release}
 Plugins to the koji command-line interface
 %endif
 
+%package hub
+Summary: Koji XMLRPC interface
+Group: Applications/Internet
+License: LGPLv2
+Requires: %{name} = %{version}-%{release}
+Requires: python2-%{name}-hub
+# ^XXX: not really what we want
+
+%description -n hub
+koji-hub is the XMLRPC interface to the koji database
+
 %package -n python2-%{name}-hub
 Summary: Koji XMLRPC interface
 Group: Applications/Internet
@@ -136,10 +147,10 @@ Requires: %{name} = %{version}-%{release}
 Requires: python2-%{name} = %{version}-%{release}
 # py2 xor py3
 Conflicts: python{%python3_pkgversion}-%{name}-hub
-Provides: koji-hub
 
 %description -n python2-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
+
 
 %if 0%{with python3}
 %package -n python%{python3_pkgversion}-%{name}-hub
@@ -361,40 +372,40 @@ rm -rf $RPM_BUILD_ROOT
 #%%config(noreplace) %%{_sysconfdir}/koji/plugins/*.conf
 %endif
 
-%files -n python2-%{name}-hub
+%files hub
 %defattr(-,root,root)
-%{_datadir}/koji-hub
-%dir %{_libexecdir}/koji-hub
 %config(noreplace) /etc/httpd/conf.d/kojihub.conf
 %dir /etc/koji-hub
 %config(noreplace) /etc/koji-hub/hub.conf
 %dir /etc/koji-hub/hub.conf.d
+
+%files -n python2-%{name}-hub
+%defattr(-,root,root)
+%{_datadir}/koji-hub
+%dir %{_libexecdir}/koji-hub
 
 %if 0%{with python3}
 %files -n python%{python3_pkgversion}-%{name}-hub
 %defattr(-,root,root)
 %{_datadir}/koji-hub
 %dir %{_libexecdir}/koji-hub
-%config(noreplace) /etc/httpd/conf.d/kojihub.conf
-%dir /etc/koji-hub
-%config(noreplace) /etc/koji-hub/hub.conf
-%dir /etc/koji-hub/hub.conf.d
 %endif
+
+%files hub-plugins
+%defattr(-,root,root)
+%dir /etc/koji-hub/plugins
+%config(noreplace) /etc/koji-hub/plugins/*.conf
 
 %files -n python2-%{name}-hub-plugins
 %defattr(-,root,root)
 %dir %{_prefix}/lib/koji-hub-plugins
 %{_prefix}/lib/koji-hub-plugins/*.py*
-%dir /etc/koji-hub/plugins
-%config(noreplace) /etc/koji-hub/plugins/*.conf
 
 %if 0%{with python3}
 %files -n python%{python3_pkgversion}-%{name}-hub-plugins
 %defattr(-,root,root)
 %dir %{_prefix}/lib/koji-hub-plugins
 %{_prefix}/lib/koji-hub-plugins/*.py*
-%dir /etc/koji-hub/plugins
-%config(noreplace) /etc/koji-hub/plugins/*.conf
 %endif
 
 %files builder-plugins
