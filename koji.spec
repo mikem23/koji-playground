@@ -175,6 +175,7 @@ Requires: python-qpid >= 0.7
 Requires: python-qpid-proton
 %endif
 Requires: cpio
+Provides: koji-hub-plugins
 
 %description -n python2-%{name}-hub-plugins
 Plugins to the koji XMLRPC interface
