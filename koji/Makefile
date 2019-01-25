@@ -3,7 +3,7 @@ PACKAGE = $(shell basename `pwd`)
 ifeq ($(PYTHON), python3)
     # for python3 we fully support only basic library + CLI
     PYFILES = __init__.py util.py plugin.py xmlrpcplus.py db.py auth.py \
-	      server.py rpmdiff.py context.py policy.py
+	      server.py rpmdiff.py context.py policy.py tasks.py
     PYSCRIPTS =
     SUBDIRS =
 else
