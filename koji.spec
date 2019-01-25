@@ -125,7 +125,7 @@ Summary: Koji XMLRPC interface
 Group: Applications/Internet
 License: LGPLv2
 Requires: %{name} = %{version}-%{release}
-Requires: python2-%{name}-hub
+#Requires: python2-%{name}-hub
 # ^XXX: not really what we want
 
 %description hub
