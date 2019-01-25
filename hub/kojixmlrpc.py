@@ -701,7 +701,7 @@ def application(environ, start_response):
             ('Allow', 'POST'),
         ]
         start_response('405 Method Not Allowed', headers)
-        response = "Method Not Allowed\nThis is an XML-RPC server. Only POST requests are accepted."
+        response = "Method Not Allowed\nThis is an XML-RPC server. Only POST requests are accepted.".encode()
         headers = [
             ('Content-Length', str(len(response))),
             ('Content-Type', "text/plain"),
