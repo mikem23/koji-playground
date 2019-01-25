@@ -365,7 +365,7 @@ def offline_reply(start_response, msg=None):
         faultString = "server is offline"
     else:
         faultString = msg
-    response = dumps(Fault(faultCode, faultString))
+    response = dumps(Fault(faultCode, faultString)).encode()
     headers = [
         ('Content-Length', str(len(response))),
         ('Content-Type', "text/xml"),
