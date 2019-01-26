@@ -398,7 +398,7 @@ rm -rf $RPM_BUILD_ROOT
 %if 0%{with python3}
 %files -n python%{python3_pkgversion}-%{name}-hub
 %defattr(-,root,root)
-%{_datadir}/koji-hub
+%{_datadir}/koji-hub-python3
 %dir %{_libexecdir}/koji-hub
 %endif
 

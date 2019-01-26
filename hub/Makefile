@@ -1,4 +1,4 @@
-PYTHON=python
+PYTHON=python2
 PACKAGE = $(shell basename `pwd`)
 PYFILES = $(wildcard *.py)
 PYVER := $(shell $(PYTHON) -c 'import sys; print("%.3s" %(sys.version))')
@@ -6,7 +6,11 @@ PYSYSDIR := $(shell $(PYTHON) -c 'import sys; print(sys.prefix)')
 PYLIBDIR = $(PYSYSDIR)/lib/python$(PYVER)
 PKGDIR = $(PYLIBDIR)/site-packages/$(PACKAGE)
 
+ifeq ($(PYTHON), python3)
+SERVERDIR = /usr/share/koji-hub-python3
+else
 SERVERDIR = /usr/share/koji-hub
+endif
 PYFILES = $(wildcard *.py)
 
 _default:
