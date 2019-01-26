@@ -158,7 +158,7 @@ Summary: Koji XMLRPC interface
 Group: Applications/Internet
 License: LGPLv2 and GPLv2
 # rpmdiff lib (from rpmlint) is GPLv2 (only)
-Provides: koji-hub-code
+Provides: %{name}-hub-code
 Requires: httpd
 Requires: mod_wsgi
 %if 0%{?fedora} >= 21 || 0%{?rhel} >= 7
