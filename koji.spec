@@ -342,6 +342,8 @@ cd ../cli
 make DESTDIR=$RPM_BUILD_ROOT PYTHON=python3 %{?install_opt} install
 cd ../plugins
 make DESTDIR=$RPM_BUILD_ROOT PYTHON=python3 %{?install_opt} install
+cd ../hub
+make DESTDIR=$RPM_BUILD_ROOT PYTHON=python3 %{?install_opt} install
 # alter python interpreter in koji CLI
 sed -i 's/\#\!\/usr\/bin\/python2/\#\!\/usr\/bin\/python3/' $RPM_BUILD_ROOT/usr/bin/koji
 %endif
