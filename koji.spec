@@ -125,7 +125,8 @@ Summary: Koji XMLRPC interface
 Group: Applications/Internet
 License: LGPLv2
 Requires: %{name} = %{version}-%{release}
-#Requires: python2-%{name}-hub
+Suggests: python2-%{name}-hub
+Requires: %{name}-hub-code
 # ^XXX: not really what we want
 
 %description hub
@@ -136,6 +137,7 @@ Summary: Koji XMLRPC interface
 Group: Applications/Internet
 License: LGPLv2 and GPLv2
 # rpmdiff lib (from rpmlint) is GPLv2 (only)
+Provides: %{name}-hub-code
 Requires: httpd
 Requires: mod_wsgi
 %if 0%{?fedora} >= 21 || 0%{?rhel} >= 7
@@ -145,8 +147,6 @@ Requires: python-psycopg2
 Requires: %{name} = %{version}-%{release}
 # we need the python2 lib here
 Requires: python2-%{name} = %{version}-%{release}
-# py2 xor py3
-Conflicts: python{%python3_pkgversion}-%{name}-hub
 
 %description -n python2-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
@@ -158,6 +158,7 @@ Summary: Koji XMLRPC interface
 Group: Applications/Internet
 License: LGPLv2 and GPLv2
 # rpmdiff lib (from rpmlint) is GPLv2 (only)
+Provides: koji-hub-code
 Requires: httpd
 Requires: mod_wsgi
 %if 0%{?fedora} >= 21 || 0%{?rhel} >= 7
@@ -167,9 +168,6 @@ Requires: python-psycopg2
 Requires: %{name} = %{version}-%{release}
 # we need the python2 lib here
 Requires: python%{python3_pkgversion}-%{name} = %{version}-%{release}
-# py2 xor py3
-Conflicts: python2-%{name}-hub
-Provides: koji-hub
 
 %description -n python%{python3_pkgversion}-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
