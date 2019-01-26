@@ -8,9 +8,14 @@ from koji.context import context
 from koji.plugin import export
 import koji
 import random
+import six
 import sys
 
 #XXX - have to import kojihub for make_task
+if six.PY3:
+    sys.path.insert(0, '/usr/share/koji-hub-python3/')
+else:
+    sys.path.insert(0, '/usr/share/koji-hub/')
 sys.path.insert(0, '/usr/share/koji-hub/')
 import kojihub
 

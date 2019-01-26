@@ -1,11 +1,15 @@
 from __future__ import absolute_import
 import sys
+import six
 import six.moves.configparser
 import koji
 from koji.context import context
 from koji.plugin import export
 
-sys.path.insert(0, '/usr/share/koji-hub/')
+if six.PY3:
+    sys.path.insert(0, '/usr/share/koji-hub-python3/')
+else:
+    sys.path.insert(0, '/usr/share/koji-hub/')
 import kojihub
 
 __all__ = ('saveFailedTree',)
