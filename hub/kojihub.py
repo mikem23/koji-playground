@@ -10556,8 +10556,8 @@ class RootExports(object):
         else:
             raise koji.GenericError('Unable to find function: %s' % name)
 
-    def pyVer(self):
-        return sys.version
+    def DEBUG(self):
+        return [sys.version, context.environ['SCRIPT_FILENAME']]
 
     tagChangedSinceEvent = staticmethod(tag_changed_since_event)
     createBuildTarget = staticmethod(create_build_target)
