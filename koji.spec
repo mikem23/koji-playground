@@ -179,8 +179,8 @@ Group: Applications/Internet
 License: LGPLv2
 Requires: %{name} = %{version}-%{release}
 Requires: %{name}-hub = %{version}-%{release}
-Requires: python2-%{name}-hub-plugins
-# XXX^ no right
+Requires: %{name}-hub-plugins-code
+Suggests: python2-%{name}-hub-plugins
 
 %description hub-plugins
 Plugins to the koji XMLRPC interface
@@ -189,6 +189,7 @@ Plugins to the koji XMLRPC interface
 Summary: Koji hub plugins
 Group: Applications/Internet
 License: LGPLv2
+Provides: %{name}-hub-plugins-code
 Requires: %{name} = %{version}-%{release}
 Requires: %{name}-hub = %{version}-%{release}
 Requires: python-qpid >= 0.7
@@ -205,6 +206,7 @@ Plugins to the koji XMLRPC interface
 Summary: Koji hub plugins
 Group: Applications/Internet
 License: LGPLv2
+Provides: %{name}-hub-plugins-code
 Requires: %{name} = %{version}-%{release}
 Requires: %{name}-hub = %{version}-%{release}
 Requires: python-qpid >= 0.7
