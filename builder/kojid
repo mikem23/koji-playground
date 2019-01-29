@@ -61,9 +61,12 @@ from ConfigParser import ConfigParser
 from fnmatch import fnmatch
 from gzip import GzipFile
 from optparse import OptionParser, SUPPRESS_HELP
-from yum import repoMDObject
-import yum.packages
-import yum.Errors
+try:
+    import yum
+    import yum.packages
+    import yum.Errors
+except ImportError:
+    yum = None
 
 #imports for LiveCD, LiveMedia, and Appliance handler
 image_enabled = False
@@ -697,6 +700,8 @@ class BuildRoot(object):
         if not external_repos:
             #nothing to do
             return
+        if yum is None:
+            raise koji.BuildError('yum is required for builds using external repos')
         #index external repos by expanded url
         erepo_idx = {}
         for erepo in external_repos:
@@ -712,7 +717,7 @@ class BuildRoot(object):
         opts['tempdir'] = self.options.workdir
         fo = koji.openRemoteFile(repomdpath, **opts)
         try:
-            repodata = repoMDObject.RepoMD('ourrepo', fo)
+            repodata = yum.repoMDObject.RepoMD('ourrepo', fo)
         except:
             raise koji.BuildError("Unable to parse repomd.xml file for %s" % os.path.join(repodir, self.br_arch))
         data  = repodata.getData('origin')
@@ -5244,6 +5249,8 @@ class createDistRepoTask(BaseTaskHandler):
         self.uploadpath = self.getUploadDir()
         self.get_rpms(tag, arch, keys, opts)
         if opts['multilib'] and rpmUtils.arch.isMultiLibArch(arch):
+            if yum is None:
+                raise koji.GenericError('yum is required to generate multilib dist repos')
             self.do_multilib(arch, self.archmap[arch], opts['multilib'])
         self.split_pkgs(opts)
         self.write_kojipkgs()
