@@ -27,8 +27,11 @@ import rpmUtils.miscutils
 import shutil
 import sys
 import tempfile
-import yum
-import yum.misc
+try:
+    import yum
+    import yum.misc
+except ImportError:
+    yum = None
 from optparse import OptionParser
 
 # Expand a canonical arch to the full list of
@@ -281,6 +284,10 @@ class RepoMerge(object):
 def main(args):
     """main"""
     opts = parse_args(args)
+
+    if yum is None:
+        sys.stderr.write('This script requires yum')
+        sys.exit(1)
 
     if opts.blocked:
         blocked_fo = file(opts.blocked)
