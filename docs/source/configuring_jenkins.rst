@@ -107,11 +107,11 @@ Configuration
   # install python requirements via pip, you can also specify exact versions
   here
   if [ $NODE_NAME == "EL6" ] ; then
-      pip install psycopg2\<2.7 --upgrade --ignore-installed
+      pip install "psycopg2<2.7" "urllib3<1.24" "requests<2.20" "requests-mock<1.5" --upgrade --ignore-installed
   else
       pip install pip packaging --upgrade --ignore-installed
       pip install setuptools --upgrade --ignore-installed
-      pip install psycopg2 --upgrade --ignore-installed
+      pip install psycopg2 requests-mock --upgrade --ignore-installed
   fi
   pip install nose python-qpid-proton mock coverage python-multilib --upgrade --ignore-installed
   if [ -x /usr/bin/python3 ] ; then
@@ -119,6 +119,7 @@ Configuration
   else
       pip install Cheetah --upgrade --ignore-installed
   fi
+
   # rehash package to be sure updated versions are used
   hash -r
 
