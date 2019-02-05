@@ -168,13 +168,9 @@ Summary: Koji RPM builder daemon
 Group: Applications/System
 License: LGPLv2 and GPLv2+
 #mergerepos (from createrepo) is GPLv2+
-Requires: %{name} = %{version}-%{release}
-# we need the python2 lib here
-Requires: python2-%{name} = %{version}-%{release}
 Requires: mock >= 0.9.14
 Requires(pre): /usr/sbin/useradd
 Requires: squashfs-tools
-Requires: python2-multilib
 %if %{use_systemd}
 Requires(post): systemd
 Requires(preun): systemd
@@ -188,9 +184,15 @@ Requires(preun): /sbin/service
 Requires: /usr/bin/cvs
 Requires: /usr/bin/svn
 Requires: /usr/bin/git
-Requires: python-cheetah
-%if 0%{?fedora} >= 9
 Requires: createrepo >= 0.9.2
+%if 0%{with python3}
+Requires: python%{python3_pkgversion}-%{name} = %{version}-%{release}
+Requires: python%{python3_pkgversion}-multilib
+Requires: python%{python3_pkgversion}-cheetah
+%else
+Requires: python2-%{name} = %{version}-%{release}
+Requires: python2-multilib
+Requires: python-cheetah
 %endif
 
 %description builder
@@ -201,7 +203,6 @@ tasks that come through the Koji system.
 Summary: Koji virtual machine management daemon
 Group: Applications/System
 License: LGPLv2
-Requires: %{name} = %{version}-%{release}
 # we need the python2 lib here
 Requires: python2-%{name} = %{version}-%{release}
 %if %{use_systemd}
@@ -278,6 +279,7 @@ cd ../plugins
 make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
 # alter python interpreter in koji CLI
 sed -i 's/\#\!\/usr\/bin\/python2/\#\!\/usr\/bin\/python3/' $RPM_BUILD_ROOT/usr/bin/koji
+sed -i 's/\#\!\/usr\/bin\/python2/\#\!\/usr\/bin\/python3/' $RPM_BUILD_ROOT/usr/sbin/kojid
 %endif
 
 %clean
