@@ -197,7 +197,9 @@ class ConfigFileTestCase(unittest.TestCase):
 
     def test_read_multiple_config_files(self):
         files = ['test1.conf', 'test2.conf']
-        koji.read_config_files(files)
+        conf = koji.read_config_files(files)
+        cls_expect = self.default_class()
+        self.assertTrue(isinstance(conf, cls_expect))
         if six.PY2:
             self.scparser.assert_called_once()
         else:
@@ -213,12 +215,12 @@ class ConfigFileTestCase(unittest.TestCase):
 
     def test_read_raw_config_file(self):
         files = 'test1.conf'
-        conf = koji.read_config_files(files)
-        cls_expect = self.default_class()
+        conf = koji.read_config_files(files, raw=True)
+        cls_expect = six.moves.configparser.RawConfigParser.__class__
         self.assertTrue(isinstance(conf, cls_expect))
         self.cparser.assert_not_called()
-        self.scparser.assert_called_once()
-        self.rcparser.assert_not_called()
+        self.scparser.assert_not_called()
+        self.rcparser.assert_called_once()
 
 
 class MavenUtilTestCase(unittest.TestCase):
