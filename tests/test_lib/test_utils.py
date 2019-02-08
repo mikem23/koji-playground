@@ -161,42 +161,64 @@ class MiscFunctionTestCase(unittest.TestCase):
 class ConfigFileTestCase(unittest.TestCase):
     """Test config file reading functions"""
 
-    @mock_open()
-    @mock.patch("six.moves.configparser.ConfigParser", spec=True)
-    @mock.patch("six.moves.configparser.SafeConfigParser", spec=True)
-    def test_read_config_files(self, scp_clz, cp_clz, open_mock):
+    def setUp(self):
+        self.open = mock_open().start()
+        self.cparser = mock.patch("six.moves.configparser.ConfigParser",
+                            spec=True).start()
+        self.scparser = mock.patch("six.moves.configparser.SafeConfigParser",
+                            spec=True).start()
+        self.rcparser = mock.patch("six.moves.configparser.RawConfigParser",
+                            spec=True).start()
+
+    def tearDown(self):
+        mock.patch.stopall()
+
+    def default_class(self):
+        if six.PY2:
+            return six.moves.configparser.SafeConfigParser.__class__
+        else:
+            return six.moves.configparser.ConfigParser.__class__
+
+    def test_read_single_config_file(self):
         files = 'test1.conf'
         conf = koji.read_config_files(files)
-        self.assertTrue(isinstance(conf,
-                                   six.moves.configparser.ConfigParser.__class__))
-        cp_clz.assert_called_once()
-        open_mock.assert_called_once_with(files, 'r')
+        cls_expect = self.default_class()
+        self.assertTrue(isinstance(conf, cls_expect))
         if six.PY2:
-            cp_clz.return_value.readfp.assert_called_once()
+            self.scparser.assert_called_once()
         else:
-            cp_clz.return_value.read_file.assert_called_once()
+            self.cparser.assert_called_once()
+        self.rcparser.assert_not_called()
+        self.open.assert_called_once_with(files, 'r')
+        if six.PY2:
+            self.scparser.return_value.readfp.assert_called_once()
+        else:
+            self.cparser.return_value.read_file.assert_called_once()
 
-        open_mock.reset_mock()
-        cp_clz.reset_mock()
+    def test_read_multiple_config_files(self):
         files = ['test1.conf', 'test2.conf']
         koji.read_config_files(files)
-        cp_clz.assert_called_once()
-        open_mock.assert_has_calls([call('test1.conf', 'r'),
-                                    call('test2.conf', 'r')],
-                                   any_order=True)
         if six.PY2:
-            self.assertEqual(cp_clz.return_value.readfp.call_count, 2)
+            self.scparser.assert_called_once()
         else:
-            self.assertEqual(cp_clz.return_value.read_file.call_count, 2)
+            self.cparser.assert_called_once()
+        self.rcparser.assert_not_called()
+        self.open.assert_has_calls([call('test1.conf', 'r'),
+                                    call('test2.conf', 'r')],
+                                    any_order=True)
+        if six.PY2:
+            self.assertEqual(self.scparser.return_value.readfp.call_count, 2)
+        else:
+            self.assertEqual(self.cparser.return_value.read_file.call_count, 2)
 
-        open_mock.reset_mock()
-        cp_clz.reset_mock()
-        conf = koji.read_config_files(files,
-                                      six.moves.configparser.SafeConfigParser)
-        self.assertTrue(isinstance(conf,
-                                   six.moves.configparser.SafeConfigParser.__class__))
-        cp_clz.assert_not_called()
-        scp_clz.assert_called_once()
+    def test_read_raw_config_file(self):
+        files = 'test1.conf'
+        conf = koji.read_config_files(files)
+        cls_expect = self.default_class()
+        self.assertTrue(isinstance(conf, cls_expect))
+        self.cparser.assert_not_called()
+        self.scparser.assert_called_once()
+        self.rcparser.assert_not_called()
 
 
 class MavenUtilTestCase(unittest.TestCase):
