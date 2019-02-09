@@ -23,16 +23,16 @@
 
 %if 0%{?fedora} < 30
 # match what these Fedoras already have
-%define with_python2 2
-%define with_python2 1
+%define py2_support 2
+%define py3_support 1
 %else
 %if 0%{?fedora} < 33
-%define with_python2 1
-%define with_python2 2
+%define py2_support 1
+%define py3_support 2
 %else
 # no py2 after F33
-%define with_python2 0
-%define with_python2 2
+%define py2_support 0
+%define py3_support 2
 %endif
 %endif
 
@@ -178,6 +178,7 @@ Suggests: python%{python3_pkgversion}-%{name}-hub-plugins
 %description hub
 koji-hub is the XMLRPC interface to the koji database
 
+%if 0%{py2_support} > 1
 %package -n python2-%{name}-hub
 Summary: Koji XMLRPC interface
 Group: Applications/Internet
@@ -197,6 +198,7 @@ Provides: %{name}-hub-code = %{version}-%{release}
 
 %description -n python2-%{name}-hub
 koji-hub is the XMLRPC interface to the koji database
+%endif
 
 %if 0%{py3_support} > 1
 %package -n python%{python3_pkgversion}-%{name}-hub
@@ -232,6 +234,7 @@ Suggests: python%{python3_pkgversion}-%{name}-hub-plugins
 %description hub-plugins
 Plugins to the koji XMLRPC interface
 
+%if 0%{py2_support} > 1
 %package -n python2-%{name}-hub-plugins
 Summary: Koji hub plugins
 Group: Applications/Internet
@@ -246,6 +249,7 @@ Provides: %{name}-hub-plugins-code
 
 %description -n python2-%{name}-hub-plugins
 Plugins to the koji XMLRPC interface
+%endif
 
 %if 0%{py3_support} > 1
 %package -n python%{python3_pkgversion}-%{name}-hub-plugins
@@ -403,6 +407,11 @@ koji-web is a web UI to the Koji system.
 %install
 rm -rf $RPM_BUILD_ROOT
 
+%if ! 0%{py2_support}  && ! 0%{py3_support}
+echo "Nothing to build"
+%endif
+
+
 # python2 build
 %if 0%{py2_support} > 1
 make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python2} %{?install_opt} install
@@ -436,6 +445,8 @@ for d in koji cli plugins ; do
 done
 # alter python interpreter in koji CLI
 sed -i 's/\#\!\/usr\/bin\/python2/\#\!\/usr\/bin\/python3/' $RPM_BUILD_ROOT/usr/bin/koji
+# remove the hub plugins pycache
+rm -rf $RPM_BUILD_ROOT/usr/lib/koji-hub-plugins/__pycache__
 %endif
 %endif
 
@@ -487,14 +498,14 @@ rm -rf $RPM_BUILD_ROOT
 %config(noreplace) /etc/koji-hub/hub.conf
 %dir /etc/koji-hub/hub.conf.d
 
-%if 0%{py2_support}
+%if 0%{py2_support} > 1
 %files -n python2-%{name}-hub
 %defattr(-,root,root)
 %{_datadir}/koji-hub/*.py*
 %dir %{_libexecdir}/koji-hub
 %endif
 
-%if 0%{py3_support}
+%if 0%{py3_support} > 1
 %files -n python%{python3_pkgversion}-%{name}-hub
 %defattr(-,root,root)
 %{_datadir}/koji-hub/*.py
@@ -506,20 +517,20 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/koji-hub/plugins
 %config(noreplace) /etc/koji-hub/plugins/*.conf
 
-%if 0%{py2_support}
+%if 0%{py2_support} > 1
 %files -n python2-%{name}-hub-plugins
 %defattr(-,root,root)
 %{_prefix}/lib/koji-hub-plugins/*.py*
 %endif
 
-%if 0%{py3_support}
+%if 0%{py3_support} > 1
 %files -n python%{python3_pkgversion}-%{name}-hub-plugins
 %defattr(-,root,root)
 %{_prefix}/lib/koji-hub-plugins/*.py
 %{_prefix}/lib/koji-hub-plugins/__pycache__
 %endif
 
-%if 0%{py2_support}
+%if 0%{py2_support} > 1
 %files builder-plugins
 %defattr(-,root,root)
 %dir /etc/kojid/plugins
@@ -548,7 +559,7 @@ rm -rf $RPM_BUILD_ROOT
 %config(noreplace) /etc/koji-shadow/koji-shadow.conf
 %endif
 
-%if 0%{py2_support}
+%if 0%{py2_support} > 1
 %files -n python2-%{name}-web
 %defattr(-,root,root)
 %{_datadir}/koji-web
@@ -558,7 +569,7 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/kojiweb/web.conf.d
 %endif
 
-%if 0%{py3_support}
+%if 0%{py3_support} > 1
 %files -n python%{python3_pkgversion}-%{name}-web
 %defattr(-,root,root)
 %{_datadir}/koji-web
@@ -568,7 +579,6 @@ rm -rf $RPM_BUILD_ROOT
 %dir /etc/kojiweb/web.conf.d
 %endif
 
-%if 0%{py2_support}
 %files builder
 %defattr(-,root,root)
 %{_sbindir}/kojid
@@ -609,9 +619,8 @@ if [ $1 = 0 ]; then
   /sbin/chkconfig --del kojid
 fi
 %endif
-%endif
 
-%if 0%{py2_support}
+%if 0%{py2_support} > 1
 %files vm
 %defattr(-,root,root)
 %{_sbindir}/kojivmd
