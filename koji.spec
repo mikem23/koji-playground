@@ -407,10 +407,10 @@ koji-web is a web UI to the Koji system.
 %install
 rm -rf $RPM_BUILD_ROOT
 
-%if ! 0%{py2_support}  && ! 0%{py3_support}
-echo "Nothing to build"
+%if 0%{py2_support} < 2  &&  0%{py3_support} < 2
+echo "At least one python must be built with full support"
+exit 1
 %endif
-
 
 # python2 build
 %if 0%{py2_support} > 1
