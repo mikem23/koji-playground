@@ -419,7 +419,7 @@ make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python2} %{?install_opt} install
 %if 0%{py2_support}
 for d in koji cli plugins ; do
     pushd $d
-    make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
+    make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python2} %{?install_opt} install
     popd
 done
 %endif
@@ -427,7 +427,7 @@ done
 
 # python3 build
 %if 0%{py3_support} > 1
-for d in koji cli plugins hub www ; do
+for d in koji cli plugins hub www builder ; do
     pushd $d
     make DESTDIR=$RPM_BUILD_ROOT PYTHON=%{__python3} %{?install_opt} install
     popd
