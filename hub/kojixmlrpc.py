@@ -668,6 +668,11 @@ def server_setup(environ):
         logger.debug('Setting up koji service')
         opts = load_config(environ)
         setup_logging2(opts)
+        if logger.isEnabledFor(logging.DEBUG):
+            for nm in environ:
+                if not nm.startswith('wsgi.'):
+                    continue
+                logger.debug('%s: %s', nm, environ[nm])
         logger.debug('Loading hub code')
         load_scripts(environ)
         koji.util.setup_rlimits(opts)
