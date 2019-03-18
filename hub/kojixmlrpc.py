@@ -662,15 +662,19 @@ def get_memory_usage():
 
 def server_setup(environ):
     global opts, plugins, registry, policy
-    logger = logging.getLogger('koji')
+    logger = logging.getLogger('koji.setup')
     try:
         setup_logging1()
+        logger.debug('Setting up koji service')
         opts = load_config(environ)
         setup_logging2(opts)
+        logger.debug('Loading hub code')
         load_scripts(environ)
         koji.util.setup_rlimits(opts)
+        logger.debug('Loading plugins')
         plugins = load_plugins(opts)
         registry = get_registry(opts, plugins)
+        logger.debug('Loading policy')
         policy = get_policy(opts, plugins)
         koji.db.provideDBopts(database=opts["DBName"],
                               user=opts["DBUser"],

@@ -63,6 +63,7 @@ class PluginTracker(object):
         self.prefix = prefix
         self.plugins = {}
         self.logger = logging.getLogger(__name__)
+        self.logger.debug('New plugin tracker: %s', id(self))
 
     def load(self, name, path=None, reload=False):
         self.logger.debug('Loading plugin: %s', name)
@@ -79,6 +80,9 @@ class PluginTracker(object):
             #(no '.' -- it causes problems)
             mod_name = self.prefix + name
         if mod_name in sys.modules and not reload:
+            bad_mod = sys.modules[mod_name]
+            self.logger.debug('%s already in sys.modules: object id %s', name,
+                              id(bad_mod))
             raise koji.PluginError('module name conflict: %s' % mod_name)
         if path is None:
             path = self.searchpath
@@ -93,6 +97,7 @@ class PluginTracker(object):
             raise
         finally:
             file.close()
+        self.logger.debug('Loaded plugin %s with object id %s', name, id(plugin))
         self.plugins[name] = plugin
         return plugin
 
