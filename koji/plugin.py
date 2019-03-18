@@ -62,8 +62,14 @@ class PluginTracker(object):
         #prefix should not have a '.' in it, this can cause problems.
         self.prefix = prefix
         self.plugins = {}
+        self.logger = logging.getLogger(__name__)
 
     def load(self, name, path=None, reload=False):
+        self.logger.debug('Loading plugin: %s', name)
+        self.logger.debug('Currently loaded: %s', list(self.plugins))
+        if self.logger.isEnabledFor(logging.DEBUG):
+            mods = [nm[len(self.prefix):] for nm in sys.modules if nm.startswith(self.prefix)]
+            self.logger.debug('sys.modules has: %s', sorted(mods))
         if name in self.plugins and not reload:
             return self.plugins[name]
         mod_name = name
