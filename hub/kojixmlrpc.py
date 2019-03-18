@@ -504,7 +504,7 @@ def load_plugins(opts):
         try:
             tracker.load(name)
         except Exception:
-            logger.error(''.join(traceback.format_exception(*sys.exc_info())))
+            logger.exception('Failed to load plugin: %s', name)
             #make this non-fatal, but set ServerOffline
             opts['ServerOffline'] = True
             opts['OfflineMessage'] = 'configuration error'
