@@ -669,11 +669,6 @@ def server_setup(environ):
         logger.debug('Setting up koji service')
         opts = load_config(environ)
         setup_logging2(opts)
-        if logger.isEnabledFor(logging.DEBUG):
-            for nm in environ:
-                if not nm.startswith('wsgi.'):
-                    continue
-                logger.debug('%s: %s', nm, environ[nm])
         logger.debug('Loading hub code')
         load_scripts(environ)
         koji.util.setup_rlimits(opts)
@@ -706,16 +701,11 @@ firstcall_lock = threading.Lock()
 def application(environ, start_response):
     global firstcall
     if firstcall:
-        logger = logging.getLogger('koji.setup')
-        logger.debug('First call pass 1')
         with firstcall_lock:
             # check again, another thread may be ahead of us
-            logger.debug('First call lock!')
             if firstcall:
-                logger.debug('First call pass 2')
                 server_setup(environ)
                 firstcall = False
-                logger.debug('Setting firstcall=False')
     # XMLRPC uses POST only. Reject anything else
     if environ['REQUEST_METHOD'] != 'POST':
         headers = [
