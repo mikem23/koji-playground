@@ -8779,7 +8779,10 @@ def importImageInternal(task_id, build_id, imgdata):
     # record all of the RPMs installed in the image(s)
     # verify they were built in Koji or in an external repo
     rpm_ids = []
-    for an_rpm in imgdata['rpmlist']:
+    # sorted to prevent deadlock
+    data = [sorted(r.items()) for r in imgdata['rpmlist']]
+    rpmlist = [dict(r) for r in sorted(data)]
+    for an_rpm in rpmlist:
         location = an_rpm.get('location')
         if location:
             data = add_external_rpm(an_rpm, location, strict=False)
@@ -11628,6 +11631,9 @@ class BuildRoot(object):
         if update:
             current = set([r['rpm_id'] for r in self.getList()])
         rpm_ids = []
+        # sorted to prevent deadlock
+        data = [sorted(r.items()) for r in rpmlist]
+        rpmlist = [dict(r) for r in sorted(data)]
         for an_rpm in rpmlist:
             location = an_rpm.get('location')
             if location:
