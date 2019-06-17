@@ -179,8 +179,11 @@ Available tests
 ``package``
     * Matches its arguments against the package name. Accepts glob patterns.
 
-``nvr``
-    * Matches its arguments against the build NVR. Accepts glob patterns.
+``version``
+    * Matches its arguments against the build version. Accepts glob patterns.
+
+``release``
+    * Matches its arguments against the build release. Accepts glob patterns.
 
 ``tag``
     * matches its arguments against the tag name. Accepts glob patterns.
