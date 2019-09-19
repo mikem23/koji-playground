@@ -2145,7 +2145,7 @@ class ClientSession(object):
         # Use a weak reference here so the garbage collector can still clean up
         # ClientSession objects even with a circular reference and the optional
         # cycle detector being disabled due to the __del__ method being used.
-        self._multicall = MultiCallHack(weakref.proxy(self))
+        self._multicall = MultiCallHack(weakref.ref(self))
         self._calls = []
         self.logger = logging.getLogger('koji')
         self.rsession = None
@@ -2893,6 +2893,7 @@ class MultiCallHack(object):
 
     def __init__(self, session):
         self.value = False
+        # we expect session to be a weakref
         self.session = session
 
     def __nonzero__(self):
@@ -2902,7 +2903,9 @@ class MultiCallHack(object):
         return self.value
 
     def __call__(self, **kw):
-        return MultiCallSession(self.session, **kw)
+        # note: self.session is a weakref
+        # we want the original object for the MultiCallSession
+        return MultiCallSession(self.session(), **kw)
 
 
 class MultiCallNotReady(Exception):
