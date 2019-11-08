@@ -8310,7 +8310,7 @@ class BulkInsertProcessor(object):
         """Do bulk inserts - it has some limitations compared to
         InsertProcessor (no rawset, dup_check).
 
-        set() is replaced with set_record() to avoid confusion
+        set() is replaced with add_record() to avoid confusion
 
         table   - name of the table
         data    - list of dict per record
@@ -8362,10 +8362,10 @@ class BulkInsertProcessor(object):
     def __repr__(self):
         return "<BulkInsertProcessor: %r>" % vars(self)
 
-    def set_record(self, **kwargs):
+    def add_record(self, **kwargs):
         """Set whole record via keyword args"""
         if not kwargs:
-            raise koji.GenericError("Missing values in BulkInsert.set_record")
+            raise koji.GenericError("Missing values in BulkInsert.add_record")
         self.data.append(kwargs)
         self.columns |= set(kwargs.keys())
 
@@ -9467,7 +9467,7 @@ def importImageInternal(task_id, build_id, imgdata):
             continue
         logger.info('associating installed rpms with %s', archive['id'])
         for rpm_id in rpm_ids:
-            insert.set_record(archive_id=archive['id'], rpm_id=rpm_id)
+            insert.add_record(archive_id=archive['id'], rpm_id=rpm_id)
     if insert.data:
         insert.execute()
 
@@ -12466,7 +12466,7 @@ class BuildRoot(object):
         if rpm_ids:
             insert = BulkInsertProcessor(table='buildroot_listing')
             for rpm_id in rpm_ids:
-                insert.set_record(buildroot_id=self.id, rpm_id=rpm_id, is_update=update)
+                insert.add_record(buildroot_id=self.id, rpm_id=rpm_id, is_update=update)
             insert.execute()
 
     def setList(self, rpmlist):
@@ -12524,7 +12524,7 @@ class BuildRoot(object):
         if new_archives:
             insert = BulkInsertProcessor('buildroot_archives')
             for archive_id in sorted(new_archives):
-                insert.set_record(buildroot_id=self.id,
+                insert.add_record(buildroot_id=self.id,
                                   project_dep=project,
                                   archive_id=archive_id)
             insert.execute()
@@ -12537,7 +12537,7 @@ class BuildRoot(object):
 
         insert = BulkInsertProcessor('buildroot_tools_info')
         for tool in tools:
-            insert.set_record(buildroot_id=self.id, tool=tool['name'], version=tool['version'])
+            insert.add_record(buildroot_id=self.id, tool=tool['name'], version=tool['version'])
         insert.execute()
 
 
