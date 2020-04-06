@@ -626,14 +626,7 @@ List of changes:
     def test_handle_clone_tag_existing_dsttag_nodelete(self, stdout):
         args = ['src-tag', 'dst-tag', '--all', '-v', '--no-delete']
         self.session.multiCall.return_value = []
-        self.session.listPackages.side_effect = [[{'package_id': 1,
-                                                   'package_name': 'pkg',
-                                                   'blocked': False,
-                                                   'owner_name': 'userA',
-                                                   'tag_name': 'src-tag',
-                                                   'extra_arches': None},
-                                                  ],
-                                                  []]
+        self.session.listPackages.return_value = []
         self.session.listTagged.side_effect = [[{'id': 1,
                                                  'package_name': 'pkg',
                                                  'nvr': 'pkg-1.0-23',
@@ -675,17 +668,16 @@ List of changes:
         self.assert_console_message(stdout, """
 List of changes:
 
-    Action  Package                      Blocked    Owner      From Tag
+    Action  Package                      Blocked    Owner      From Tag  
     ------- ---------------------------- ---------- ---------- ----------
-    [add]   pkg                          False      userA      src-tag
 
-    Action  From/To Package              Build(s)                                 State      Owner      From Tag
+    Action  From/To Package              Build(s)                                 State      Owner      From Tag  
     ------- ---------------------------- ---------------------------------------- ---------- ---------- ----------
-    [add]   pkg                          pkg-0.1-1                                COMPLETE   b_owner    src-tag
-    [add]   pkg                          pkg-1.0-21                               COMPLETE   b_owner    src-tag
-    [add]   pkg                          pkg-1.0-23                               COMPLETE   b_owner    src-tag
+    [add]   pkg                          pkg-0.1-1                                COMPLETE   b_owner    src-tag   
+    [add]   pkg                          pkg-1.0-21                               COMPLETE   b_owner    src-tag   
+    [add]   pkg                          pkg-1.0-23                               COMPLETE   b_owner    src-tag   
 
-    Action  Package                      Group
+    Action  Package                      Group                       
     ------- ---------------------------- ----------------------------
 """)
 
@@ -693,42 +685,41 @@ List of changes:
     def test_handle_clone_tag_existing_dsttag_nodelete_1(self, stdout):
         args = ['src-tag', 'dst-tag', '--all', '-v', '--no-delete']
         self.session.multiCall.return_value = []
-        self.session.listPackages.side_effect = [[{'package_id': 1,
-                                                   'package_name': 'pkg',
-                                                   'blocked': False,
-                                                   'owner_name': 'userA',
-                                                   'tag_name': 'src-tag',
-                                                   'extra_arches': None},
-                                                  ],
-                                                  []]
-        self.session.listTagged.side_effect = [[{'package_name': 'pkg',
+        self.session.listPackages.return_value = []
+        self.session.listTagged.side_effect = [[{'id': 1,
+                                                 'package_name': 'pkg',
                                                  'nvr': 'pkg-1.0-23',
                                                  'state': 1,
                                                  'owner_name': 'b_owner',
                                                  'tag_name': 'src-tag'},
-                                                {'package_name': 'pkg',
+                                                {'id': 2,
+                                                 'package_name': 'pkg',
                                                  'nvr': 'pkg-1.0-21',
                                                  'state': 1,
                                                  'owner_name': 'b_owner',
                                                  'tag_name': 'src-tag'},
-                                                {'package_name': 'pkg',
+                                                {'id': 3,
+                                                 'package_name': 'pkg',
                                                  'nvr': 'pkg-0.1-1',
                                                  'state': 1,
                                                  'owner_name': 'b_owner',
                                                  'tag_name': 'src-tag'},
                                                 ],
-                                                [{'package_name': 'pkg',
+                                                [{'id': 1,
+                                                  'package_name': 'pkg',
                                                  'nvr': 'pkg-1.0-23',
                                                  'state': 1,
                                                  'owner_name': 'b_owner',
                                                  'tag_name': 'src-tag'},
-                                                {'package_name': 'pkg',
-                                                 'nvr': 'pkg-1.0-21',
+                                                {'id': 3,
+                                                 'package_name': 'pkg',
+                                                 'nvr': 'pkg-0.1-1',
                                                  'state': 1,
                                                  'owner_name': 'b_owner',
                                                  'tag_name': 'src-tag'},
-                                                {'package_name': 'pkg',
-                                                 'nvr': 'pkg-0.1-1',
+                                                {'id': 2,
+                                                 'package_name': 'pkg',
+                                                 'nvr': 'pkg-1.0-21',
                                                  'state': 1,
                                                  'owner_name': 'b_owner',
                                                  'tag_name': 'src-tag'},
@@ -754,14 +745,15 @@ List of changes:
         self.assert_console_message(stdout, """
 List of changes:
 
-    Action  Package                      Blocked    Owner      From Tag
+    Action  Package                      Blocked    Owner      From Tag  
     ------- ---------------------------- ---------- ---------- ----------
-    [add]   pkg                          False      userA      src-tag
 
-    Action  From/To Package              Build(s)                                 State      Owner      From Tag
+    Action  From/To Package              Build(s)                                 State      Owner      From Tag  
     ------- ---------------------------- ---------------------------------------- ---------- ---------- ----------
+    [add]   pkg                          pkg-1.0-21                               COMPLETE   b_owner    src-tag   
+    [add]   pkg                          pkg-1.0-23                               COMPLETE   b_owner    src-tag   
 
-    Action  Package                      Group
+    Action  Package                      Group                       
     ------- ---------------------------- ----------------------------
 """)
 
@@ -769,14 +761,7 @@ List of changes:
     def test_handle_clone_tag_existing_dsttag_nodelete_2(self, stdout):
         args = ['src-tag', 'dst-tag', '--all', '-v', '--no-delete']
         self.session.multiCall.return_value = []
-        self.session.listPackages.side_effect = [[{'package_id': 1,
-                                                   'package_name': 'pkg',
-                                                   'blocked': False,
-                                                   'owner_name': 'userA',
-                                                   'tag_name': 'src-tag',
-                                                   'extra_arches': None},
-                                                  ],
-                                                  []]
+        self.session.listPackages.return_value = []
         self.session.listTagged.side_effect = [[{'id': 1,
                                                  'package_name': 'pkg',
                                                  'nvr': 'pkg-1.0-23',
@@ -830,15 +815,14 @@ List of changes:
         self.assert_console_message(stdout, """
 List of changes:
 
-    Action  Package                      Blocked    Owner      From Tag
+    Action  Package                      Blocked    Owner      From Tag  
     ------- ---------------------------- ---------- ---------- ----------
-    [add]   pkg                          False      userA      src-tag
 
-    Action  From/To Package              Build(s)                                 State      Owner      From Tag
+    Action  From/To Package              Build(s)                                 State      Owner      From Tag  
     ------- ---------------------------- ---------------------------------------- ---------- ---------- ----------
-    [add]   pkg                          pkg-1.0-23                               COMPLETE   b_owner    src-tag
+    [add]   pkg                          pkg-1.0-23                               COMPLETE   b_owner    src-tag   
 
-    Action  Package                      Group
+    Action  Package                      Group                       
     ------- ---------------------------- ----------------------------
 """)
     def test_handle_clone_tag_help(self):
