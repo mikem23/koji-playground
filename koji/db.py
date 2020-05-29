@@ -201,36 +201,3 @@ def connect():
         except Exception:
             logger.exception('Unable to connect')
             raise
-
-
-def old_connect():
-    logger = logging.getLogger('koji.db')
-    global _DBconn
-    if hasattr(_DBconn, 'conn'):
-        # Make sure the previous transaction has been
-        # closed.  This is safe to call multiple times.
-        conn = _DBconn.conn
-        try:
-            # Under normal circumstances, the last use of this connection
-            # will have issued a raw ROLLBACK to close the transaction. To
-            # avoid 'no transaction in progress' warnings (depending on postgres
-            # configuration) we open a new one here.
-            # Should there somehow be a transaction in progress, a second
-            # BEGIN will be a harmless no-op, though there may be a warning.
-            conn.cursor().execute('BEGIN')
-            conn.rollback()
-            return DBWrapper(conn)
-        except psycopg2.Error:
-            del _DBconn.conn
-    # create a fresh connection
-    try:
-        conn = psycopg2.connect(**opts)
-        conn.set_client_encoding('UTF8')
-    except Exception:
-        logger.error(''.join(traceback.format_exception(*sys.exc_info())))
-        raise
-    # XXX test
-    # return conn
-    _DBconn.conn = conn
-
-    return DBWrapper(conn)
