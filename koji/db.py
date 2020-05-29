@@ -79,6 +79,7 @@ class DBWrapper:
         self.cnx.cursor().execute('ROLLBACK')
         # We do this rather than cnx.rollback to avoid opening a new transaction
         # If our connection gets recycled cnx.rollback will be called then.
+        connection_pool.putconn(self.cnx)
         self.cnx = None
 
 
