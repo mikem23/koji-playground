@@ -37,6 +37,7 @@ import time
 import traceback
 
 import psycopg2
+import psycopg2.pool
 
 from . import context
 
@@ -164,7 +165,44 @@ def getDBopts():
     return _DBopts
 
 
+def get_pool(**kwargs):
+    # should be run *once* at startup
+    global connection_pool
+    # TODO fall back to no pool depending on settings
+    # TODO configure min max
+    connection_pool = psycopg2.pool.ThreadedConnectionPool(10, 100, **kwargs)
+    return connection_pool
+
+
 def connect():
+    logger = logging.getLogger('koji.db')
+    conn = None
+    while conn is None:
+        conn = connection_pool.getconn()
+        # Make sure the previous transaction has been
+        # closed.  This is safe to call multiple times.
+        try:
+            # Under normal circumstances, the last use of this connection
+            # will have issued a raw ROLLBACK to close the transaction. To
+            # avoid 'no transaction in progress' warnings (depending on postgres
+            # configuration) we open a new one here.
+            # Should there somehow be a transaction in progress, a second
+            # BEGIN will be a harmless no-op, though there may be a warning.
+            conn.cursor().execute('BEGIN')
+            conn.rollback()
+            conn.set_client_encoding('UTF8')
+            logger.debug('Using connection %s', conn)
+            return DBWrapper(conn)
+        except psycopg2.Error as e:
+            # throw away this connection
+            logger.error('Error reusing connection: %s', e)
+            connection_pool.putconn(conn, close=True)
+        except Exception:
+            logger.exception('Unable to connect')
+            raise
+
+
+def old_connect():
     logger = logging.getLogger('koji.db')
     global _DBconn
     if hasattr(_DBconn, 'conn'):
@@ -184,9 +222,6 @@ def connect():
         except psycopg2.Error:
             del _DBconn.conn
     # create a fresh connection
-    opts = _DBopts
-    if opts is None:
-        opts = {}
     try:
         conn = psycopg2.connect(**opts)
         conn.set_client_encoding('UTF8')

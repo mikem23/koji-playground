@@ -686,7 +686,7 @@ def server_setup(environ):
         plugins = load_plugins(opts)
         registry = get_registry(opts, plugins)
         policy = get_policy(opts, plugins)
-        koji.db.provideDBopts(database=opts["DBName"],
+        koji.db.get_pool(database=opts["DBName"],
                               user=opts["DBUser"],
                               password=opts.get("DBPass", None),
                               host=opts.get("DBHost", None),
