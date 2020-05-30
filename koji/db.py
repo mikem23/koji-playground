@@ -175,6 +175,50 @@ def get_pool(**kwargs):
     return connection_pool
 
 
+class ConnectionManager(object):
+
+    def __init__(self, opts):
+        # opts should be the hub config dict
+        self.opts = opts
+        self.dbopts = self.get_db_opts(opts)
+        if opts.get('DBConnectionPooling', False):
+            pass
+        # TODO
+
+    def get_db_opts(self, opts):
+        # get db opts from hub opts
+        ret = dict(
+                database=opts["DBName"],
+                user=opts["DBUser"],
+                password=opts.get("DBPass", None),
+                host=opts.get("DBHost", None),
+                port=opts.get("DBPort", None))
+
+    def get_conn(self):
+        pass
+
+    def free_conn(self, conn):
+        pass
+
+
+def ManagedConnection(object):
+    """Wrap connection in a context manager so it can be easily freed"""
+
+    def __init__(self, manager, connection):
+        self.manager = manager
+        self.connection = connection
+
+    # implement a context manager
+    def __enter__(self):
+        return self.connection
+
+    def __exit__(self, _type, value, traceback):
+        self.manager.free_conn(self.connection)
+        # don't eat exceptions
+        return False
+
+
+
 def connect():
     logger = logging.getLogger('koji.db')
     conn = None

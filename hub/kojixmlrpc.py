@@ -735,64 +735,63 @@ def application(environ, start_response):
         return offline_reply(start_response, msg=opts.get("OfflineMessage", None))
     # XXX check request length
     # XXX most of this should be moved elsewhere
-    if 1:
-        try:
-            start = time.time()
-            memory_usage_at_start = get_memory_usage()
+    try:
+        start = time.time()
+        memory_usage_at_start = get_memory_usage()
 
-            context._threadclear()
-            context.commit_pending = False
-            context.opts = opts
-            context.handlers = HandlerAccess(registry)
-            context.environ = environ
-            context.policy = policy
+        context._threadclear()
+        context.commit_pending = False
+        context.opts = opts
+        context.handlers = HandlerAccess(registry)
+        context.environ = environ
+        context.policy = policy
+        try:
+            context.cnx = koji.db.connect()
+        except Exception:
+            return offline_reply(start_response, msg="database outage")
+        h = ModXMLRPCRequestHandler(registry)
+        if environ.get('CONTENT_TYPE') == 'application/octet-stream':
+            response = h._wrap_handler(h.handle_upload, environ)
+        else:
+            response = h._wrap_handler(h.handle_rpc, environ)
+        if six.PY3:
+            response = response.encode()
+        headers = [
+            ('Content-Length', str(len(response))),
+            ('Content-Type', "text/xml"),
+        ]
+        start_response('200 OK', headers)
+        if h.traceback:
+            # rollback
+            context.cnx.rollback()
+        elif context.commit_pending:
+            # Currently there is not much data we can provide to the
+            # pre/postCommit callbacks. The handler can access context at
+            # least
+            koji.plugin.run_callbacks('preCommit')
+            context.cnx.commit()
+            koji.plugin.run_callbacks('postCommit')
+        memory_usage_at_end = get_memory_usage()
+        if memory_usage_at_end - memory_usage_at_start > opts['MemoryWarnThreshold']:
+            paramstr = repr(getattr(context, 'params', 'UNKNOWN'))
+            if len(paramstr) > 120:
+                paramstr = paramstr[:117] + "..."
+            h.logger.warning(
+                "Memory usage of process %d grew from %d KiB to %d KiB (+%d KiB) processing "
+                "request %s with args %s" %
+                (os.getpid(), memory_usage_at_start, memory_usage_at_end,
+                 memory_usage_at_end - memory_usage_at_start, context.method, paramstr))
+        h.logger.debug("Returning %d bytes after %f seconds", len(response),
+                       time.time() - start)
+    finally:
+        # make sure context gets cleaned up
+        if hasattr(context, 'cnx'):
             try:
-                context.cnx = koji.db.connect()
+                context.cnx.close()
             except Exception:
-                return offline_reply(start_response, msg="database outage")
-            h = ModXMLRPCRequestHandler(registry)
-            if environ.get('CONTENT_TYPE') == 'application/octet-stream':
-                response = h._wrap_handler(h.handle_upload, environ)
-            else:
-                response = h._wrap_handler(h.handle_rpc, environ)
-            if six.PY3:
-                response = response.encode()
-            headers = [
-                ('Content-Length', str(len(response))),
-                ('Content-Type', "text/xml"),
-            ]
-            start_response('200 OK', headers)
-            if h.traceback:
-                # rollback
-                context.cnx.rollback()
-            elif context.commit_pending:
-                # Currently there is not much data we can provide to the
-                # pre/postCommit callbacks. The handler can access context at
-                # least
-                koji.plugin.run_callbacks('preCommit')
-                context.cnx.commit()
-                koji.plugin.run_callbacks('postCommit')
-            memory_usage_at_end = get_memory_usage()
-            if memory_usage_at_end - memory_usage_at_start > opts['MemoryWarnThreshold']:
-                paramstr = repr(getattr(context, 'params', 'UNKNOWN'))
-                if len(paramstr) > 120:
-                    paramstr = paramstr[:117] + "..."
-                h.logger.warning(
-                    "Memory usage of process %d grew from %d KiB to %d KiB (+%d KiB) processing "
-                    "request %s with args %s" %
-                    (os.getpid(), memory_usage_at_start, memory_usage_at_end,
-                     memory_usage_at_end - memory_usage_at_start, context.method, paramstr))
-            h.logger.debug("Returning %d bytes after %f seconds", len(response),
-                           time.time() - start)
-        finally:
-            # make sure context gets cleaned up
-            if hasattr(context, 'cnx'):
-                try:
-                    context.cnx.close()
-                except Exception:
-                    pass
-            context._threadclear()
-        return [response]  # XXX
+                pass
+        context._threadclear()
+    return [response]  # XXX
 
 
 def get_registry(opts, plugins):
